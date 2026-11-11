@@ -70,9 +70,9 @@ class ApiService {
       }
       return {'ok': false, 'error': data['detail'] ?? 'Login failed (HTTP ${res.statusCode})'};
     } on TimeoutException {
-      return {'ok': false, 'error': 'Server သို့ ချိတ်ဆက်ချိန် ကုန်ဆုံးသွားပါသည်။ (VPS Port 8000 ပွင့်မပွင့် စစ်ဆေးပါ)'};
+      return {'ok': false, 'error': 'Server ချိတ်ဆက်ချိန် ကုန်ဆုံးသွားပါသည်။ (Port 8000 စစ်ဆေးပါ)'};
     } on SocketException catch (e) {
-      return {'ok': false, 'error': 'Server သို့ ချိတ်ဆက်၍မရပါ (${e.message})။ API URL နှင့် Server Run ထားခြင်း ရှိမရှိ စစ်ပါ။'};
+      return {'ok': false, 'error': 'Server သို့ ချိတ်ဆက်၍မရပါ (${e.message})။ API URL စစ်ပါ။'};
     } catch (e) {
       return {'ok': false, 'error': 'Connection Error: $e'};
     }
@@ -110,9 +110,9 @@ class ApiService {
       }
       return {'ok': false, 'error': data['detail'] ?? 'Registration failed (HTTP ${res.statusCode})'};
     } on TimeoutException {
-      return {'ok': false, 'error': 'Server သို့ ချိတ်ဆက်ချိန် ကုန်ဆုံးသွားပါသည်။ (VPS Port 8000 ပွင့်မပွင့် စစ်ဆေးပါ)'};
+      return {'ok': false, 'error': 'Server ချိတ်ဆက်ချိန် ကုန်ဆုံးသွားပါသည်။ (Port 8000 စစ်ဆေးပါ)'};
     } on SocketException catch (e) {
-      return {'ok': false, 'error': 'Server သို့ ချိတ်ဆက်၍မရပါ (${e.message})။ API URL နှင့် Server Run ထားခြင်း ရှိမရှိ စစ်ပါ။'};
+      return {'ok': false, 'error': 'Server သို့ ချိတ်ဆက်၍မရပါ (${e.message})။ API URL စစ်ပါ။'};
     } catch (e) {
       return {'ok': false, 'error': 'Connection Error: $e'};
     }
