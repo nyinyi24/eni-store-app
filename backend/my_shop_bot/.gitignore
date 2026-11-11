@@ -1,0 +1,16 @@
+# Secret Environment Files
+.env
+*.env
+backend/my_shop_bot/.env
+
+# SQLite Database Files
+*.db
+*.db-shm
+*.db-wal
+backend/my_shop_bot/shop.db*
+
+# Python & Flutter Cache
+__pycache__/
+*.pyc
+mobile_app/build/
+mobile_app/.dart_tool/
