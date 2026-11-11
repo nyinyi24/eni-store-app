@@ -31,16 +31,24 @@ jobs:
       - name: Set up Flutter SDK
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.24.5'
           channel: 'stable'
-          cache: true
+          cache: false
 
-      - name: Generate Android Platform Files & Inject HTTP Permissions
+      - name: Generate Android Platform Safely (Preserve lib & pubspec)
         working-directory: mobile_app
         run: |
+          # Backup original Dart code and pubspec.yaml so flutter create doesn't overwrite them
+          cp -r lib /tmp/lib_backup
+          cp pubspec.yaml /tmp/pubspec_backup.yaml
+
           rm -rf android test
           flutter create --platforms=android --org com.enistore.app --project-name eni_store_app .
-          rm -rf test
+          rm -rf test lib
+
+          # Restore original Dart code and pubspec.yaml
+          cp -r /tmp/lib_backup lib
+          cp /tmp/pubspec_backup.yaml pubspec.yaml
+
           python3 - << 'EOF'
           manifest_path = "android/app/src/main/AndroidManifest.xml"
           with open(manifest_path, "r", encoding="utf-8") as f:
@@ -72,9 +80,11 @@ jobs:
               f.write(content)
           EOF
 
-      - name: Install Flutter Dependencies
+      - name: Install Flutter Dependencies & Check Dart Syntax
         working-directory: mobile_app
-        run: flutter pub get
+        run: |
+          flutter pub get
+          flutter analyze --no-fatal-infos --no-fatal-warnings
 
       - name: Build Release APK
         working-directory: mobile_app
@@ -84,7 +94,7 @@ jobs:
             API_URL="http://13.228.96.27:8000/api"
           fi
           echo "Building APK with API_BASE_URL=$API_URL"
-          flutter build apk --release --no-tree-shake-icons --dart-define=API_BASE_URL="$API_URL"
+          flutter build apk --release --no-tree-shake-icons --dart-define=API_BASE_URL="$API_URL" -v
 
       - name: Upload Release APK Artifact
         uses: actions/upload-artifact@v4
