@@ -3,55 +3,64 @@ name: Build ENI Store Android APK
 on:
   push:
     branches: [ "main", "master" ]
-  pull_request:
-    branches: [ "main", "master" ]
   workflow_dispatch:
     inputs:
       api_base_url:
-        description: 'FastAPI Server URL (e.g. https://your-domain.com/api)'
+        description: 'FastAPI Server URL (e.g. http://13.228.96.27:8000/api)'
         required: false
         default: 'http://13.228.96.27:8000/api'
 
 jobs:
   build-apk:
     name: Build Release APK on GitHub Cloud
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
-      - name: 📥 Checkout Repository
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: ☕ Setup Java JDK 17
+      - name: Setup Java JDK 17
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: 💙 Setup Flutter SDK
+      - name: Setup Flutter SDK
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.24.0'
+          flutter-version: '3.24.3'
           channel: 'stable'
           cache: true
 
-      - name: 🛠 Generate Android Platform Files (if not committed)
+      - name: Safely Generate Android Folder Without Overwriting Dart Code
         working-directory: ./mobile_app
         run: |
+          # Backup our custom lib/ folder and pubspec.yaml first
+          cp -r lib /tmp/lib_backup
+          cp pubspec.yaml /tmp/pubspec_backup.yaml
+
+          # Generate Android project files
           flutter create --platforms=android --org com.enistore.premium .
-          # Ensure Cleartext HTTP traffic & Internet permissions are enabled in AndroidManifest.xml
+
+          # Restore our custom lib/ folder and pubspec.yaml
+          rm -rf lib
+          cp -r /tmp/lib_backup lib
+          cp /tmp/pubspec_backup.yaml pubspec.yaml
+
+          # Enable HTTP Cleartext traffic in AndroidManifest.xml
           sed -i 's/<application/<application android:usesCleartextTraffic="true"/g' android/app/src/main/AndroidManifest.xml
 
-      - name: 📦 Install Flutter Dependencies
+      - name: Install Flutter Dependencies
         working-directory: ./mobile_app
         run: flutter pub get
 
-      - name: 🏗 Build Release APK
+      - name: Build Release APK
         working-directory: ./mobile_app
         run: |
-          API_URL="${{ github.event.inputs.api_base_url || vars.API_BASE_URL || 'http://13.228.96.27:8000/api' }}"
-          flutter build apk --release --dart-define=API_BASE_URL="$API_URL"
+          API_URL="${{ github.event.inputs.api_base_url || 'http://13.228.96.27:8000/api' }}"
+          flutter build apk --release --no-tree-shake-icons --dart-define=API_BASE_URL="$API_URL"
 
-      - name: 📤 Upload APK Artifact (Download from Actions Tab)
+      - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: ENI-Premium-Store-Release-APK
