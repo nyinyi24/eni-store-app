@@ -45,7 +45,7 @@ class ApiService {
     }
   }
 
-  static Future> login(String phoneOrEmail, String password) async {
+  static Future<Map<String, dynamic>> login(String phoneOrEmail, String password) async {
     if (phoneOrEmail.length < 4 || password.length < 4) {
       return {'ok': false, 'error': 'Username/Phone နှင့် Password သည် အနည်းဆုံး ၄ လုံး ရှိရပါမည်။'};
     }
@@ -70,15 +70,15 @@ class ApiService {
       }
       return {'ok': false, 'error': data['detail'] ?? 'Login failed (HTTP ${res.statusCode})'};
     } on TimeoutException {
-      return {'ok': false, 'error': 'Server ချိတ်ဆက်ချိန် ကုန်ဆုံးသွားပါသည်။ (Port 8000 စစ်ဆေးပါ)'};
+      return {'ok': false, 'error': 'Server သို့ ချိတ်ဆက်ချိန် ကုန်ဆုံးသွားပါသည်။ (VPS Port 8000 ပွင့်မပွင့် စစ်ဆေးပါ)'};
     } on SocketException catch (e) {
-      return {'ok': false, 'error': 'Server သို့ ချိတ်ဆက်၍မရပါ (${e.message})။ API URL စစ်ပါ။'};
+      return {'ok': false, 'error': 'Server သို့ ချိတ်ဆက်၍မရပါ (${e.message})။ API URL နှင့် Server Run ထားခြင်း ရှိမရှိ စစ်ပါ။'};
     } catch (e) {
       return {'ok': false, 'error': 'Connection Error: $e'};
     }
   }
 
-  static Future> register({
+  static Future<Map<String, dynamic>> register({
     required String fullName,
     required String phoneOrEmail,
     required String password,
@@ -110,15 +110,15 @@ class ApiService {
       }
       return {'ok': false, 'error': data['detail'] ?? 'Registration failed (HTTP ${res.statusCode})'};
     } on TimeoutException {
-      return {'ok': false, 'error': 'Server ချိတ်ဆက်ချိန် ကုန်ဆုံးသွားပါသည်။ (Port 8000 စစ်ဆေးပါ)'};
+      return {'ok': false, 'error': 'Server သို့ ချိတ်ဆက်ချိန် ကုန်ဆုံးသွားပါသည်။ (VPS Port 8000 ပွင့်မပွင့် စစ်ဆေးပါ)'};
     } on SocketException catch (e) {
-      return {'ok': false, 'error': 'Server သို့ ချိတ်ဆက်၍မရပါ (${e.message})။ API URL စစ်ပါ။'};
+      return {'ok': false, 'error': 'Server သို့ ချိတ်ဆက်၍မရပါ (${e.message})။ API URL နှင့် Server Run ထားခြင်း ရှိမရှိ စစ်ပါ။'};
     } catch (e) {
       return {'ok': false, 'error': 'Connection Error: $e'};
     }
   }
 
-  static Future> fetchStoreConfig() async {
+  static Future<Map<String, dynamic>> fetchStoreConfig() async {
     try {
       final baseUrl = await getBaseUrl();
       final res = await http.get(Uri.parse('$baseUrl/store/config')).timeout(const Duration(seconds: 15));
@@ -138,7 +138,7 @@ class ApiService {
     throw Exception('Failed to load products');
   }
 
-  static Future> checkCoupon(String code, double totalAmount) async {
+  static Future<Map<String, dynamic>> checkCoupon(String code, double totalAmount) async {
     try {
       final baseUrl = await getBaseUrl();
       final token = await getToken();
@@ -160,7 +160,7 @@ class ApiService {
     }
   }
 
-  static Future> createOrder({
+  static Future<Map<String, dynamic>> createOrder({
     required int itemId,
     required int quantity,
     required String paymentMethod,
@@ -194,7 +194,7 @@ class ApiService {
     }
   }
 
-  static Future> uploadPaymentProof(int orderId, File imageFile) async {
+  static Future<Map<String, dynamic>> uploadPaymentProof(int orderId, File imageFile) async {
     try {
       final baseUrl = await getBaseUrl();
       final token = await getToken();
@@ -213,7 +213,7 @@ class ApiService {
     }
   }
 
-  static Future> verifyCryptoPayment({
+  static Future<Map<String, dynamic>> verifyCryptoPayment({
     required int orderId,
     required String network,
     required String txHashOrNote,
@@ -243,7 +243,7 @@ class ApiService {
     }
   }
 
-  static Future> fetchDashboard() async {
+  static Future<Map<String, dynamic>> fetchDashboard() async {
     final baseUrl = await getBaseUrl();
     final token = await getToken();
     final res = await http.get(
@@ -256,7 +256,7 @@ class ApiService {
     throw Exception('Session expired');
   }
 
-  static Future> claimDailyCheckin() async {
+  static Future<Map<String, dynamic>> claimDailyCheckin() async {
     try {
       final baseUrl = await getBaseUrl();
       final token = await getToken();
@@ -274,7 +274,7 @@ class ApiService {
     }
   }
 
-  static Future> redeemPoints() async {
+  static Future<Map<String, dynamic>> redeemPoints() async {
     try {
       final baseUrl = await getBaseUrl();
       final token = await getToken();
@@ -292,7 +292,7 @@ class ApiService {
     }
   }
 
-  static Future> uploadWalletTopup({
+  static Future<Map<String, dynamic>> uploadWalletTopup({
     required double amount,
     required String method,
     required File imageFile,
