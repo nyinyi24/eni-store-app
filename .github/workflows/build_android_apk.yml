@@ -16,7 +16,7 @@ on:
 
 jobs:
   build-apk:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout Repository
@@ -31,19 +31,21 @@ jobs:
       - name: Set up Flutter SDK
         uses: subosito/flutter-action@v2
         with:
+          flutter-version: '3.24.5'
           channel: 'stable'
           cache: true
 
-      - name: Generate Android Platform Files & Inject HTTP Cleartext Permissions
+      - name: Generate Android Platform Files & Inject HTTP Permissions
         working-directory: mobile_app
         run: |
+          rm -rf android test
           flutter create --platforms=android --org com.enistore.app --project-name eni_store_app .
+          rm -rf test
           python3 - << 'EOF'
           manifest_path = "android/app/src/main/AndroidManifest.xml"
           with open(manifest_path, "r", encoding="utf-8") as f:
               content = f.read()
 
-          # 1. Add Internet & Media Permissions for API and Payment Screenshot Upload
           permissions = """<manifest xmlns:android="http://schemas.android.com/apk/res/android">
               <uses-permission android:name="android.permission.INTERNET"/>
               <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
@@ -57,7 +59,6 @@ jobs:
                   1
               )
 
-          # 2. Enable HTTP Cleartext Traffic & Set App Label
           if 'android:usesCleartextTraffic="true"' not in content:
               content = content.replace(
                   "<application",
@@ -69,9 +70,6 @@ jobs:
 
           with open(manifest_path, "w", encoding="utf-8") as f:
               f.write(content)
-
-          print("=== Updated AndroidManifest.xml ===")
-          print(content)
           EOF
 
       - name: Install Flutter Dependencies
@@ -86,7 +84,7 @@ jobs:
             API_URL="http://13.228.96.27:8000/api"
           fi
           echo "Building APK with API_BASE_URL=$API_URL"
-          flutter build apk --release --dart-define=API_BASE_URL="$API_URL"
+          flutter build apk --release --no-tree-shake-icons --dart-define=API_BASE_URL="$API_URL"
 
       - name: Upload Release APK Artifact
         uses: actions/upload-artifact@v4
