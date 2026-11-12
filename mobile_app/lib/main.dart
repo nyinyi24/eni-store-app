@@ -7,19 +7,62 @@ import 'screens/wallet_screen.dart';
 import 'screens/profile_screen.dart';
 import 'theme.dart';
 
-void main() {
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await ThemeController.load();
   runApp(const EniStoreApp());
 }
 
-class EniStoreApp extends StatelessWidget {
+class EniStoreApp extends StatefulWidget {
   const EniStoreApp({super.key});
 
   @override
+  State<EniStoreApp> createState() => _EniStoreAppState();
+}
+
+class _EniStoreAppState extends State<EniStoreApp> with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    ThemeController.mode.addListener(_onModeChanged);
+  }
+
+  @override
+  void dispose() {
+    ThemeController.mode.removeListener(_onModeChanged);
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  void _onModeChanged() {
+    setState(() {});
+    WidgetsBinding.instance.addPostFrameCallback((_) => rebuildAllWidgets());
+  }
+
+  // Phone switched between day/night while mode == system.
+  @override
+  void didChangePlatformBrightness() {
+    if (ThemeController.mode.value == ThemeMode.system) {
+      setState(() {});
+      WidgetsBinding.instance.addPostFrameCallback((_) => rebuildAllWidgets());
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final mode = ThemeController.mode.value;
     return MaterialApp(
       title: 'ENI Premium Store',
       debugShowCheckedModeBanner: false,
-      theme: buildAppTheme(),
+      themeMode: mode,
+      theme: buildAppTheme(Brightness.light),
+      darkTheme: buildAppTheme(Brightness.dark),
+      builder: (ctx, child) {
+        // buildAppTheme() mutates AppColors.dark; make sure it matches the ACTIVE theme.
+        AppColors.dark = Theme.of(ctx).brightness == Brightness.dark;
+        return child ?? const SizedBox.shrink();
+      },
       home: const RootWrapper(),
     );
   }

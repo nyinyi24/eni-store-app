@@ -236,7 +236,7 @@ class _WalletScreenState extends State<WalletScreen> {
                             children: [
                               Text('${profile?['points'] ?? 0} pts',
                                   style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
-                              const Text('500 Points = 1,000 Ks Wallet',
+                              Text('500 Points = 1,000 Ks Wallet',
                                   style: TextStyle(fontSize: 12, color: AppColors.textDim)),
                             ],
                           ),
@@ -301,7 +301,7 @@ class _StatBox extends StatelessWidget {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
-          Text(label, style: const TextStyle(fontSize: 12, color: AppColors.textDim)),
+          Text(label, style: TextStyle(fontSize: 12, color: AppColors.textDim)),
         ],
       ),
     );

@@ -58,7 +58,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Icon(Icons.cloud_off_rounded, size: 52, color: AppColors.textDim),
+                      Icon(Icons.cloud_off_rounded, size: 52, color: AppColors.textDim),
                       const SizedBox(height: 10),
                       const Text('Server နဲ့ ချိတ်ဆက်လို့မရပါ'),
                       const SizedBox(height: 12),
@@ -71,7 +71,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
                   ),
                 )
               : orders.isEmpty
-                  ? const Center(
+                  ? Center(
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
@@ -128,7 +128,7 @@ class _OrderCard extends StatelessWidget {
                         style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800)),
                     const SizedBox(height: 2),
                     Text('${o['order_code'] ?? ''}  •  x${o['quantity'] ?? 1}',
-                        style: const TextStyle(fontSize: 11.5, color: AppColors.textDim)),
+                        style: TextStyle(fontSize: 11.5, color: AppColors.textDim)),
                   ],
                 ),
               ),

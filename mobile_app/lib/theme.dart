@@ -1,54 +1,112 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 class AppColors {
-  static const bg = Color(0xFF0B1220);
-  static const surface = Color(0xFF131C2E);
-  static const surfaceHi = Color(0xFF1B2740);
-  static const border = Color(0xFF24324D);
+  /// Set by the app root whenever the active theme brightness changes.
+  static bool dark = true;
+
+  // Neutral colours switch with the theme.
+  static Color get bg => dark ? const Color(0xFF0B1220) : const Color(0xFFF3F5FA);
+  static Color get surface => dark ? const Color(0xFF131C2E) : const Color(0xFFFFFFFF);
+  static Color get surfaceHi => dark ? const Color(0xFF1B2740) : const Color(0xFFEAEFF7);
+  static Color get border => dark ? const Color(0xFF24324D) : const Color(0xFFD9E0EC);
+  static Color get textDim => dark ? const Color(0xFF94A3B8) : const Color(0xFF64748B);
+  static Color get text => dark ? const Color(0xFFF1F5F9) : const Color(0xFF0F172A);
+
+  // Brand / status colours are the same in both themes.
   static const primary = Color(0xFF14B8A6);
   static const accent = Color(0xFF38BDF8);
   static const warn = Color(0xFFF59E0B);
   static const danger = Color(0xFFEF4444);
   static const ok = Color(0xFF22C55E);
-  static const textDim = Color(0xFF94A3B8);
 }
 
-ThemeData buildAppTheme() {
+/// Day / night mode, persisted on the device.
+class ThemeController {
+  static final ValueNotifier<ThemeMode> mode = ValueNotifier<ThemeMode>(ThemeMode.dark);
+
+  static Future<void> load() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      switch (prefs.getString('theme_mode')) {
+        case 'light':
+          mode.value = ThemeMode.light;
+          break;
+        case 'system':
+          mode.value = ThemeMode.system;
+          break;
+        default:
+          mode.value = ThemeMode.dark;
+      }
+    } catch (_) {}
+  }
+
+  static Future<void> set(ThemeMode m) async {
+    mode.value = m;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+        'theme_mode',
+        m == ThemeMode.light ? 'light' : (m == ThemeMode.system ? 'system' : 'dark'),
+      );
+    } catch (_) {}
+  }
+}
+
+/// Re-run build() of every mounted widget so widgets reading AppColors pick up the new theme.
+void rebuildAllWidgets() {
+  void visit(Element e) {
+    e.markNeedsBuild();
+    e.visitChildren(visit);
+  }
+
+  WidgetsBinding.instance.rootElement?.visitChildren(visit);
+}
+
+ThemeData buildAppTheme(Brightness brightness) {
+  AppColors.dark = brightness == Brightness.dark;
+  final scheme = ColorScheme.fromSeed(
+    seedColor: AppColors.primary,
+    brightness: brightness,
+  ).copyWith(
+    primary: AppColors.primary,
+    secondary: AppColors.accent,
+    surface: AppColors.surface,
+  );
   return ThemeData(
-    brightness: Brightness.dark,
+    brightness: brightness,
     useMaterial3: true,
+    colorScheme: scheme,
     scaffoldBackgroundColor: AppColors.bg,
     primaryColor: AppColors.primary,
-    colorScheme: const ColorScheme.dark(
-      primary: AppColors.primary,
-      secondary: AppColors.accent,
-      surface: AppColors.surface,
-    ),
-    appBarTheme: const AppBarTheme(
+    appBarTheme: AppBarTheme(
       backgroundColor: AppColors.bg,
+      foregroundColor: AppColors.text,
       surfaceTintColor: Colors.transparent,
       elevation: 0,
       centerTitle: false,
-      titleTextStyle: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: Colors.white),
+      titleTextStyle: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: AppColors.text),
     ),
     navigationBarTheme: NavigationBarThemeData(
       backgroundColor: AppColors.surface,
+      surfaceTintColor: Colors.transparent,
       indicatorColor: AppColors.primary.withAlpha(60),
       labelTextStyle: WidgetStateProperty.all(
         const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
       ),
     ),
+    dialogTheme: DialogThemeData(backgroundColor: AppColors.surface),
     inputDecorationTheme: InputDecorationTheme(
       filled: true,
       fillColor: AppColors.surface,
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(14),
-        borderSide: const BorderSide(color: AppColors.border),
+        borderSide: BorderSide(color: AppColors.border),
       ),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(14),
-        borderSide: const BorderSide(color: AppColors.border),
+        borderSide: BorderSide(color: AppColors.border),
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(14),

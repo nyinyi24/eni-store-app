@@ -317,4 +317,65 @@ class ApiService {
       return {'ok': false, 'error': 'Upload error: $e'};
     }
   }
+
+  // ---------------- Account / Profile ----------------
+
+  static Future<Map<String, dynamic>> _authRequest(
+    String method,
+    String path, {
+    Map<String, dynamic>? body,
+  }) async {
+    try {
+      final baseUrl = await getBaseUrl();
+      final token = await getToken();
+      final uri = Uri.parse('$baseUrl$path');
+      final headers = {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $token',
+      };
+      http.Response res;
+      final payload = body == null ? null : jsonEncode(body);
+      if (method == 'GET') {
+        res = await http.get(uri, headers: headers).timeout(const Duration(seconds: 15));
+      } else if (method == 'PUT') {
+        res = await http.put(uri, headers: headers, body: payload).timeout(const Duration(seconds: 15));
+      } else {
+        res = await http.post(uri, headers: headers, body: payload).timeout(const Duration(seconds: 20));
+      }
+      final data = _safeDecode(res);
+      if (res.statusCode == 200) {
+        return {'ok': true, 'data': data};
+      }
+      return {'ok': false, 'error': data['detail'] ?? 'Request failed (HTTP ${res.statusCode})'};
+    } on TimeoutException {
+      return {'ok': false, 'error': 'Server သို့ ချိတ်ဆက်ချိန် ကုန်ဆုံးသွားပါသည်။'};
+    } catch (e) {
+      return {'ok': false, 'error': 'Network error: $e'};
+    }
+  }
+
+  static Future<Map<String, dynamic>> fetchAccount() => _authRequest('GET', '/account/me');
+
+  static Future<Map<String, dynamic>> updateProfileName(String fullName) =>
+      _authRequest('PUT', '/account/profile', body: {'full_name': fullName});
+
+  static Future<Map<String, dynamic>> changePassword(String oldPassword, String newPassword) =>
+      _authRequest('POST', '/account/change-password',
+          body: {'old_password': oldPassword, 'new_password': newPassword});
+
+  static Future<Map<String, dynamic>> requestTelegramLink(int telegramUserId) =>
+      _authRequest('POST', '/account/telegram/request', body: {'telegram_user_id': telegramUserId});
+
+  /// On success the server returns a NEW token (the account id changes to the Telegram id).
+  static Future<Map<String, dynamic>> verifyTelegramLink(String code) async {
+    final res = await _authRequest('POST', '/account/telegram/verify', body: {'code': code});
+    if (res['ok'] == true) {
+      final token = res['data']['token'];
+      if (token != null) {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('jwt_token', token);
+      }
+    }
+    return res;
+  }
 }

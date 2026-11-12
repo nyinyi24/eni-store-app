@@ -16,7 +16,6 @@ class _AuthScreenState extends State<AuthScreen> {
   final nameCtrl = TextEditingController();
   final phoneCtrl = TextEditingController();
   final passCtrl = TextEditingController();
-  final tgIdCtrl = TextEditingController();
 
   Future<void> submit() async {
     setState(() => loading = true);
@@ -24,12 +23,10 @@ class _AuthScreenState extends State<AuthScreen> {
     if (isLogin) {
       res = await ApiService.login(phoneCtrl.text.trim(), passCtrl.text.trim());
     } else {
-      final tgId = int.tryParse(tgIdCtrl.text.trim());
       res = await ApiService.register(
         fullName: nameCtrl.text.trim().isEmpty ? 'App User' : nameCtrl.text.trim(),
         phoneOrEmail: phoneCtrl.text.trim(),
         password: passCtrl.text.trim(),
-        telegramUserId: tgId,
       );
     }
     setState(() => loading = false);
@@ -112,7 +109,7 @@ class _AuthScreenState extends State<AuthScreen> {
                 Text(
                   isLogin ? 'Sign in to access your digital subscriptions' : 'Create a new ENI Store account',
                   textAlign: TextAlign.center,
-                  style: const TextStyle(color: AppColors.textDim),
+                  style: TextStyle(color: AppColors.textDim),
                 ),
                 const SizedBox(height: 28),
                 if (!isLogin) ...[
@@ -141,17 +138,6 @@ class _AuthScreenState extends State<AuthScreen> {
                     prefixIcon: Icon(Icons.lock_outline_rounded),
                   ),
                 ),
-                if (!isLogin) ...[
-                  const SizedBox(height: 14),
-                  TextField(
-                    controller: tgIdCtrl,
-                    keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(
-                      labelText: 'Telegram User ID (Optional - Bot orders sync)',
-                      prefixIcon: Icon(Icons.send_rounded),
-                    ),
-                  ),
-                ],
                 const SizedBox(height: 24),
                 SizedBox(
                   width: double.infinity,

@@ -100,6 +100,9 @@ def init_app_auth_tables():
             )
             """
         )
+        cols = [r[1] for r in cursor.execute("PRAGMA table_info(telegram_link_codes)").fetchall()]
+        if "app_user_id" not in cols:
+            cursor.execute("ALTER TABLE telegram_link_codes ADD COLUMN app_user_id INTEGER")
         conn.commit()
 
 
@@ -186,14 +189,9 @@ def api_register(req: RegisterRequest):
         if exists:
             raise HTTPException(status_code=400, detail="This phone/email is already registered.")
 
-        if req.telegram_user_id:
-            # Check if this telegram_user_id is already linked
-            linked = cur.execute(
-                "SELECT 1 FROM app_accounts WHERE user_id = ?", (int(req.telegram_user_id),)
-            ).fetchone()
-            new_user_id = int(req.telegram_user_id) if not linked else None
-        else:
-            new_user_id = None
+        # SECURITY: never attach a Telegram ID at registration (it is unverified and would let
+        # anyone claim another user's wallet). Use POST /api/account/telegram/request + /verify.
+        new_user_id = None
 
         if not new_user_id:
             max_row = cur.execute("SELECT MAX(user_id) FROM app_accounts WHERE user_id >= 9000000000").fetchone()
@@ -232,6 +230,191 @@ def api_login(req: LoginRequest):
         "token": create_jwt_token(row[0]),
         "user_id": int(row[0]),
         "full_name": row[2],
+    }
+
+
+# ==================== 1b. Account / Profile Management ====================
+
+class UpdateProfileRequest(BaseModel):
+    full_name: str
+
+
+class ChangePasswordRequest(BaseModel):
+    old_password: str
+    new_password: str
+
+
+class TelegramLinkRequest(BaseModel):
+    telegram_user_id: int
+
+
+class TelegramVerifyRequest(BaseModel):
+    code: str
+
+
+def _is_app_only(user_id: int) -> bool:
+    return int(user_id) >= 9000000000
+
+
+@app.get("/api/account/me")
+def api_account_me(user_id: int = Depends(get_current_user)):
+    with get_db_connection(DATABASE_NAME) as conn:
+        row = conn.execute(
+            "SELECT phone_or_email, full_name, created_at FROM app_accounts WHERE user_id = ?",
+            (user_id,),
+        ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Account not found")
+    return {
+        "user_id": int(user_id),
+        "identifier": row[0],
+        "full_name": row[1],
+        "created_at": row[2],
+        "telegram_linked": not _is_app_only(user_id),
+        "telegram_user_id": None if _is_app_only(user_id) else int(user_id),
+    }
+
+
+@app.put("/api/account/profile")
+def api_update_profile(req: UpdateProfileRequest, user_id: int = Depends(get_current_user)):
+    name = req.full_name.strip()
+    if len(name) < 2 or len(name) > 60:
+        raise HTTPException(status_code=400, detail="နာမည်သည် ၂ လုံးမှ ၆၀ လုံးအတွင်း ဖြစ်ရပါမည်။")
+    with get_db_connection(DATABASE_NAME) as conn:
+        conn.execute("UPDATE app_accounts SET full_name = ? WHERE user_id = ?", (name, user_id))
+        conn.execute("UPDATE users SET first_name = ? WHERE user_id = ?", (name, user_id))
+        conn.commit()
+    return {"ok": True, "full_name": name}
+
+
+@app.post("/api/account/change-password")
+def api_change_password(req: ChangePasswordRequest, user_id: int = Depends(get_current_user)):
+    if len(req.new_password) < 4:
+        raise HTTPException(status_code=400, detail="Password အသစ်သည် အနည်းဆုံး ၄ လုံး ရှိရပါမည်။")
+    with get_db_connection(DATABASE_NAME) as conn:
+        row = conn.execute(
+            "SELECT password_hash FROM app_accounts WHERE user_id = ?", (user_id,)
+        ).fetchone()
+        if not row or row[0] != _hash_password(req.old_password):
+            raise HTTPException(status_code=400, detail="Password အဟောင်း မမှန်ပါ။")
+        conn.execute(
+            "UPDATE app_accounts SET password_hash = ? WHERE user_id = ?",
+            (_hash_password(req.new_password), user_id),
+        )
+        conn.commit()
+    return {"ok": True, "message": "Password ပြောင်းပြီးပါပြီ။"}
+
+
+@app.post("/api/account/telegram/request")
+def api_telegram_link_request(req: TelegramLinkRequest, user_id: int = Depends(get_current_user)):
+    """Step 1: the bot DMs a 6-digit code to the Telegram ID, proving the person owns it."""
+    if not _is_app_only(user_id):
+        raise HTTPException(status_code=400, detail="ဒီ account မှာ Telegram ချိတ်ပြီးသား ဖြစ်ပါတယ်။")
+    tg_id = int(req.telegram_user_id)
+    if tg_id <= 0 or tg_id >= 9000000000:
+        raise HTTPException(status_code=400, detail="Telegram User ID မမှန်ပါ။")
+    if not bot:
+        raise HTTPException(status_code=503, detail="Bot မချိတ်ထားသေးပါ။ Admin ကို ဆက်သွယ်ပါ။")
+
+    with get_db_connection(DATABASE_NAME) as conn:
+        taken = conn.execute("SELECT 1 FROM app_accounts WHERE user_id = ?", (tg_id,)).fetchone()
+        if taken:
+            raise HTTPException(status_code=400, detail="ဒီ Telegram ID ကို တခြား app account က ချိတ်ထားပြီးသား ဖြစ်ပါတယ်။")
+        name_row = conn.execute(
+            "SELECT full_name FROM app_accounts WHERE user_id = ?", (user_id,)
+        ).fetchone()
+
+    code = f"{secrets.randbelow(900000) + 100000}"
+    expires = (yangon_now() + timedelta(minutes=10)).strftime("%Y-%m-%d %H:%M:%S")
+    try:
+        bot.send_message(
+            tg_id,
+            "🔗 <b>ENI Store App Link Code</b>\n"
+            f"App account: <b>{html.escape(str(name_row[0] if name_row else 'App User'))}</b>\n\n"
+            f"Code: <code>{code}</code>\n"
+            "⏱ ၁၀ မိနစ်အတွင်း App ထဲမှာ ထည့်ပါ။\n"
+            "သင်မလုပ်ခဲ့ရင် ဒီ message ကို လျစ်လျူရှုပါ။",
+        )
+    except Exception:
+        raise HTTPException(
+            status_code=400,
+            detail="Telegram ကို code မပို့နိုင်ပါ။ Bot ကို Telegram မှာ /start လုပ်ထားပြီး ID မှန်မမှန် စစ်ပါ။",
+        )
+
+    with get_db_connection(DATABASE_NAME) as conn:
+        conn.execute("DELETE FROM telegram_link_codes WHERE app_user_id = ?", (user_id,))
+        conn.execute(
+            "INSERT INTO telegram_link_codes (code, telegram_user_id, expires_at, app_user_id) VALUES (?, ?, ?, ?)",
+            (f"{user_id}:{code}", tg_id, expires, user_id),
+        )
+        conn.commit()
+    return {"ok": True, "message": "Telegram Bot ဆီကို code ပို့လိုက်ပါပြီ။"}
+
+
+@app.post("/api/account/telegram/verify")
+def api_telegram_link_verify(req: TelegramVerifyRequest, user_id: int = Depends(get_current_user)):
+    """Step 2: merge this app account (wallet, orders, points) into the Telegram user's data."""
+    if not _is_app_only(user_id):
+        raise HTTPException(status_code=400, detail="Telegram ချိတ်ပြီးသား ဖြစ်ပါတယ်။")
+    code = req.code.strip()
+    now_str = yangon_now().strftime("%Y-%m-%d %H:%M:%S")
+
+    with get_db_connection(DATABASE_NAME, timeout=15) as conn:
+        row = conn.execute(
+            "SELECT telegram_user_id, expires_at FROM telegram_link_codes WHERE code = ? AND app_user_id = ?",
+            (f"{user_id}:{code}", user_id),
+        ).fetchone()
+        if not row:
+            raise HTTPException(status_code=400, detail="Code မမှန်ပါ။")
+        if str(row[1]) < now_str:
+            conn.execute("DELETE FROM telegram_link_codes WHERE app_user_id = ?", (user_id,))
+            conn.commit()
+            raise HTTPException(status_code=400, detail="Code သက်တမ်းကုန်သွားပါပြီ။ ပြန်တောင်းပါ။")
+        new_id = int(row[0])
+        old_id = int(user_id)
+
+        if conn.execute("SELECT 1 FROM app_accounts WHERE user_id = ?", (new_id,)).fetchone():
+            raise HTTPException(status_code=400, detail="ဒီ Telegram ID ကို တခြား account က ချိတ်ထားပြီးသား ဖြစ်ပါတယ်။")
+
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            conn.execute("INSERT OR IGNORE INTO users (user_id, join_date) VALUES (?, ?)", (new_id, now_str))
+            # wallet: add app balance/points on top of the bot wallet
+            conn.execute(
+                "INSERT OR IGNORE INTO user_wallets (user_id, balance, points, streak, last_checkin_date) "
+                "VALUES (?, 0, 0, 0, '')", (new_id,)
+            )
+            old_w = conn.execute(
+                "SELECT balance, points FROM user_wallets WHERE user_id = ?", (old_id,)
+            ).fetchone()
+            if old_w:
+                conn.execute(
+                    "UPDATE user_wallets SET balance = balance + ?, points = points + ? WHERE user_id = ?",
+                    (float(old_w[0] or 0), int(old_w[1] or 0), new_id),
+                )
+                conn.execute("DELETE FROM user_wallets WHERE user_id = ?", (old_id,))
+
+            for table in (
+                "orders", "wallet_topups", "support_tickets", "payment_submissions",
+                "stock_reservations", "stock_waitlist", "promotion_claims", "gw_claims",
+                "referral_rewards",
+            ):
+                conn.execute(f"UPDATE OR IGNORE {table} SET user_id = ? WHERE user_id = ?", (new_id, old_id))
+            conn.execute("UPDATE OR IGNORE orders SET gift_recipient_id = ? WHERE gift_recipient_id = ?", (new_id, old_id))
+
+            conn.execute("UPDATE app_accounts SET user_id = ? WHERE user_id = ?", (new_id, old_id))
+            conn.execute("DELETE FROM users WHERE user_id = ?", (old_id,))
+            conn.execute("DELETE FROM telegram_link_codes WHERE app_user_id = ?", (old_id,))
+            conn.commit()
+        except Exception as e:
+            conn.rollback()
+            raise HTTPException(status_code=500, detail=f"Link failed: {e}")
+
+    return {
+        "ok": True,
+        "token": create_jwt_token(new_id),
+        "user_id": new_id,
+        "message": "Telegram ချိတ်ဆက်ပြီးပါပြီ။ Bot ထဲက balance နဲ့ order တွေ ပေါင်းထည့်ပေးပြီးပါပြီ။",
     }
 
 

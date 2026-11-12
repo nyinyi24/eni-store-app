@@ -252,7 +252,7 @@ class _ShopScreenState extends State<ShopScreen> {
                     style: TextStyle(
                       fontSize: 13,
                       fontWeight: FontWeight.w700,
-                      color: selected ? Colors.white : AppColors.textDim,
+                      color: selected ? AppColors.text : AppColors.textDim,
                     ),
                   ),
                   const SizedBox(width: 6),
@@ -296,7 +296,7 @@ class _EmptyState extends StatelessWidget {
             const SizedBox(height: 12),
             Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
             const SizedBox(height: 6),
-            Text(subtitle, textAlign: TextAlign.center, style: const TextStyle(color: AppColors.textDim)),
+            Text(subtitle, textAlign: TextAlign.center, style: TextStyle(color: AppColors.textDim)),
             if (actionLabel != null) ...[
               const SizedBox(height: 14),
               FilledButton.icon(
@@ -368,13 +368,13 @@ class ProductCard extends StatelessWidget {
             '${p['details'] ?? ''}',
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
-            style: const TextStyle(fontSize: 11.5, color: AppColors.textDim, height: 1.3),
+            style: TextStyle(fontSize: 11.5, color: AppColors.textDim, height: 1.3),
           ),
           const Spacer(),
           if (original != null)
             Text(
               '${fmtMoney(original)} Ks',
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 11,
                 color: AppColors.textDim,
                 decoration: TextDecoration.lineThrough,
@@ -614,7 +614,7 @@ class _CheckoutBottomSheetState extends State<CheckoutBottomSheet> {
                   if ('${widget.item['description_mm'] ?? ''}'.isNotEmpty) ...[
                     const SizedBox(height: 10),
                     Text('${widget.item['description_mm']}',
-                        style: const TextStyle(fontSize: 12.5, color: AppColors.textDim, height: 1.4)),
+                        style: TextStyle(fontSize: 12.5, color: AppColors.textDim, height: 1.4)),
                   ],
                   const SizedBox(height: 16),
                   Row(
@@ -686,7 +686,7 @@ class _CheckoutBottomSheetState extends State<CheckoutBottomSheet> {
                                     Text(m.hint,
                                         maxLines: 1,
                                         overflow: TextOverflow.ellipsis,
-                                        style: const TextStyle(fontSize: 10.5, color: AppColors.textDim)),
+                                        style: TextStyle(fontSize: 10.5, color: AppColors.textDim)),
                                   ],
                                 ),
                               ),
@@ -729,7 +729,7 @@ class _CheckoutBottomSheetState extends State<CheckoutBottomSheet> {
                     ),
                   ),
                   const SizedBox(height: 6),
-                  const Center(
+                  Center(
                     child: Text('Stock ကို ၁၀ မိနစ် reserve လုပ်ပေးထားပါမယ်',
                         style: TextStyle(fontSize: 11, color: AppColors.textDim)),
                   ),
@@ -756,7 +756,7 @@ class _CheckoutBottomSheetState extends State<CheckoutBottomSheet> {
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        const Text('Total Payable', style: TextStyle(color: AppColors.textDim)),
+                        Text('Total Payable', style: TextStyle(color: AppColors.textDim)),
                         Text(
                           '${fmtMoney(createdOrder!['total_amount'])} Ks  (\$${createdOrder!['total_usd']})',
                           style: const TextStyle(fontWeight: FontWeight.w800, color: AppColors.primary),
@@ -773,7 +773,7 @@ class _CheckoutBottomSheetState extends State<CheckoutBottomSheet> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text('Send to ($paymentMethod)',
-                                  style: const TextStyle(fontSize: 12, color: AppColors.textDim)),
+                                  style: TextStyle(fontSize: 12, color: AppColors.textDim)),
                               const SizedBox(height: 4),
                               SelectableText(
                                 '${payDetails[paymentMethod] ?? 'Ask Admin'}',
