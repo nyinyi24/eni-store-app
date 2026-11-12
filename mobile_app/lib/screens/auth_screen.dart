@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../api_service.dart';
+import '../theme.dart';
 
 class AuthScreen extends StatefulWidget {
   final VoidCallback onLoginSuccess;
@@ -75,7 +76,7 @@ class _AuthScreenState extends State<AuthScreen> {
         backgroundColor: Colors.transparent,
         actions: [
           IconButton(
-            icon: const Icon(Icons.settings_ethernet),
+            icon: const Icon(Icons.settings_ethernet_rounded),
             tooltip: 'Configure Server URL',
             onPressed: showServerConfigDialog,
           ),
@@ -84,83 +85,101 @@ class _AuthScreenState extends State<AuthScreen> {
       body: Center(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(Icons.diamond_rounded, size: 72, color: Color(0xFF14B8A6)),
-              const SizedBox(height: 12),
-              const Text(
-                'ENI PREMIUM STORE',
-                style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, letterSpacing: 1.2),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                isLogin ? 'Sign in to access your digital subscriptions' : 'Create a new ENI Store account',
-                style: const TextStyle(color: Colors.white70),
-              ),
-              const SizedBox(height: 28),
-              if (!isLogin) ...[
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 420),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Container(
+                  width: 84,
+                  height: 84,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(26),
+                    gradient: const LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [AppColors.primary, AppColors.accent],
+                    ),
+                  ),
+                  child: const Icon(Icons.diamond_rounded, size: 46, color: Colors.black87),
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  'ENI PREMIUM STORE',
+                  style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800, letterSpacing: 1.2),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  isLogin ? 'Sign in to access your digital subscriptions' : 'Create a new ENI Store account',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: AppColors.textDim),
+                ),
+                const SizedBox(height: 28),
+                if (!isLogin) ...[
+                  TextField(
+                    controller: nameCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'Your Name',
+                      prefixIcon: Icon(Icons.person_outline_rounded),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                ],
                 TextField(
-                  controller: nameCtrl,
+                  controller: phoneCtrl,
                   decoration: const InputDecoration(
-                    labelText: 'Your Name',
-                    prefixIcon: Icon(Icons.person_outline),
-                    border: OutlineInputBorder(),
+                    labelText: 'Phone Number or Username',
+                    prefixIcon: Icon(Icons.alternate_email_rounded),
                   ),
                 ),
                 const SizedBox(height: 14),
-              ],
-              TextField(
-                controller: phoneCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'Phone Number or Username',
-                  prefixIcon: Icon(Icons.alternate_email),
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              const SizedBox(height: 14),
-              TextField(
-                controller: passCtrl,
-                obscureText: true,
-                decoration: const InputDecoration(
-                  labelText: 'Password',
-                  prefixIcon: Icon(Icons.lock_outline),
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              if (!isLogin) ...[
-                const SizedBox(height: 14),
                 TextField(
-                  controller: tgIdCtrl,
-                  keyboardType: TextInputType.number,
+                  controller: passCtrl,
+                  obscureText: true,
                   decoration: const InputDecoration(
-                    labelText: 'Telegram User ID (Optional - to sync Bot orders)',
-                    prefixIcon: Icon(Icons.telegram),
-                    border: OutlineInputBorder(),
+                    labelText: 'Password',
+                    prefixIcon: Icon(Icons.lock_outline_rounded),
                   ),
+                ),
+                if (!isLogin) ...[
+                  const SizedBox(height: 14),
+                  TextField(
+                    controller: tgIdCtrl,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                      labelText: 'Telegram User ID (Optional - Bot orders sync)',
+                      prefixIcon: Icon(Icons.send_rounded),
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 24),
+                SizedBox(
+                  width: double.infinity,
+                  height: 52,
+                  child: FilledButton(
+                    onPressed: loading ? null : submit,
+                    style: FilledButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      foregroundColor: Colors.black,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                    ),
+                    child: loading
+                        ? const SizedBox(
+                            width: 22,
+                            height: 22,
+                            child: CircularProgressIndicator(color: Colors.black, strokeWidth: 2.5),
+                          )
+                        : Text(isLogin ? 'LOGIN' : 'CREATE ACCOUNT',
+                            style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15)),
+                  ),
+                ),
+                const SizedBox(height: 14),
+                TextButton(
+                  onPressed: () => setState(() => isLogin = !isLogin),
+                  child: Text(isLogin ? "Don't have an account? Register Now" : 'Already have an account? Login'),
                 ),
               ],
-              const SizedBox(height: 24),
-              SizedBox(
-                width: double.infinity,
-                height: 50,
-                child: ElevatedButton(
-                  onPressed: loading ? null : submit,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF14B8A6),
-                    foregroundColor: Colors.black,
-                  ),
-                  child: loading
-                      ? const CircularProgressIndicator(color: Colors.black)
-                      : Text(isLogin ? 'LOGIN' : 'CREATE ACCOUNT', style: const TextStyle(fontWeight: FontWeight.bold)),
-                ),
-              ),
-              const SizedBox(height: 16),
-              TextButton(
-                onPressed: () => setState(() => isLogin = !isLogin),
-                child: Text(isLogin ? "Don't have an account? Register Now" : 'Already have an account? Login'),
-              ),
-            ],
+            ),
           ),
         ),
       ),

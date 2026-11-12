@@ -166,6 +166,8 @@ def get_expiry_label(expiry_date, language):
     return "သက်တမ်းကုန်ပြီးသောရက်" if is_expired else "လက်ရှိသက်တမ်းကုန်မည့်ရက်"
 
 def send_renewed_key_message(bot, target_user_id, renewal):
+    if is_app_only_user(target_user_id):
+        return
     language = get_user_language(target_user_id) or "my"
     safe_item_name = html.escape(str(renewal["item_name"]))
     safe_expiry = html.escape(str(renewal["expiry_date"]))
@@ -228,7 +230,18 @@ def check_and_send_low_stock_alert(bot, item_name):
     except Exception as e:
         print(f"Low stock alert error: {e}")
 
+def is_app_only_user(user_id):
+    """Mobile-app accounts without a linked Telegram chat use synthetic IDs >= 9,000,000,000."""
+    try:
+        return int(user_id) >= 9000000000
+    except Exception:
+        return False
+
+
 def send_delivery_message(bot, target_user_id, item_name, account_data):
+    if is_app_only_user(target_user_id):
+        # No Telegram chat exists; the app reads delivered_data from the order itself.
+        return
     language = get_user_language(target_user_id) or "my"
     review_markup = types.InlineKeyboardMarkup()
     if is_apple_gift_card(item_name):
@@ -2188,7 +2201,10 @@ def init_admin_handlers(bot):
         
         try:
             target_user_id = int(re.search(r'User ID:.*?(\d+)', caption).group(1))
-            item_name = re.search(r'Item: (.*)', caption).group(1).strip()
+            _o = get_order_details(order_id)
+            item_name = str(_o[2]).strip() if _o and _o[2] else ""
+            if not item_name:
+                item_name = re.search(r'(?:Item|Product): (.*)', caption).group(1).strip()
         except Exception as e:
             print(f"Data parsing error: {e}")
             return
@@ -2622,4 +2638,3 @@ def init_all_handlers(bot):
     init_review_handlers(bot)
     init_admin_handlers(bot)
     init_order_history_handlers(bot)
-

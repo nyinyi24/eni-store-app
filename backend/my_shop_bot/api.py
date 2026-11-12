@@ -325,6 +325,26 @@ def _auto_deliver_order(order_id: int) -> dict:
     return {"delivered": False, "reason": "Manual delivery queued for Admin"}
 
 
+def _order_dict(order_id):
+    """Fetch an order as a dict keyed by column NAME (tuple indexes differ between DBs)."""
+    with get_db_connection(DATABASE_NAME) as conn:
+        cur = conn.execute("SELECT * FROM orders WHERE order_id = ?", (order_id,))
+        row = cur.fetchone()
+        if not row:
+            return None
+        return dict(zip([d[0] for d in cur.description], row))
+
+
+def _user_orders_dicts(user_id):
+    with get_db_connection(DATABASE_NAME) as conn:
+        cur = conn.execute(
+            "SELECT * FROM orders WHERE user_id = ? AND status = 'Success' ORDER BY order_id DESC",
+            (int(user_id),),
+        )
+        names = [d[0] for d in cur.description]
+        return [dict(zip(names, r)) for r in cur.fetchall()]
+
+
 @app.post("/api/orders")
 def api_create_order(req: CreateOrderRequest, user_id: int = Depends(get_current_user)):
     res = create_reserved_order(
@@ -393,12 +413,12 @@ async def api_upload_payment_proof(
     if status != "submitted":
         raise HTTPException(status_code=400, detail=f"Cannot submit receipt: {status}")
 
-    order = get_order_details(order_id)
-    item_name = order[2] if order else "Product"
-    qty = order[3] if order else 1
-    method = order[4] if order else "App"
-    order_code = order[8] if order and len(order) > 8 else f"ORD-{order_id}"
-    amount = order[12] if order and len(order) > 12 and order[12] is not None else 0
+    order = _order_dict(order_id) or {}
+    item_name = order.get("item_name") or "Product"
+    qty = order.get("quantity") or 1
+    method = order.get("payment_method") or "App"
+    order_code = order.get("order_code") or f"ORD-{order_id}"
+    amount = order.get("total_amount") or 0
 
     if bot:
         markup = telebot.types.InlineKeyboardMarkup(row_width=2)
@@ -410,7 +430,7 @@ async def api_upload_payment_proof(
             f"📱 <b>Mobile App Payment Receipt</b>\n"
             f"━━━━━━━━━━━━━━━━━━\n"
             f"👤 User ID: <code>{user_id}</code>\n"
-            f"📦 Product: <b>{html.escape(str(item_name))}</b> (x{qty})\n"
+            f"📦 Item: <b>{html.escape(str(item_name))}</b> (x{qty})\n"
             f"💳 Method: <b>{html.escape(str(method))}</b>\n"
             f"💰 Total: <b>{float(amount):,.0f} MMK</b>\n"
             f"🧾 Order ID: <code>{html.escape(str(order_code))}</code>"
@@ -431,7 +451,7 @@ def api_verify_crypto(req: CryptoVerifyRequest, user_id: int = Depends(get_curre
         raise HTTPException(status_code=404, detail="Order not found")
 
     order_code = str(order[8] or f"ORD-{req.order_id}")
-    total_mmk = float(order[12] or 0)
+    total_mmk = float((_order_dict(req.order_id) or {}).get("total_amount") or 0)
     mmk_per_usd = get_mmk_per_usd()
     expected_usd = round(total_mmk / mmk_per_usd, 2) if mmk_per_usd else 1.0
 
@@ -480,26 +500,26 @@ def api_renew_existing_key(
 @app.get("/api/user/dashboard")
 def api_user_dashboard(user_id: int = Depends(get_current_user)):
     profile = get_user_profile_stats(user_id)
-    raw_orders = get_user_orders(user_id)
+    raw_orders = _user_orders_dicts(user_id)
     orders_out = []
     for o in raw_orders:
-        outline_key_id = o[13] if len(o) > 13 else None
+        outline_key_id = o.get("outline_key_id")
         usage = None
         if outline_key_id:
-            u_res = get_key_data_usage(outline_key_id, o[2])
+            u_res = get_key_data_usage(outline_key_id, o["item_name"])
             if u_res.get("ok"):
                 usage = u_res
         orders_out.append({
-            "order_id": o[0],
-            "item_name": o[2],
-            "quantity": o[3],
-            "payment_method": o[4],
-            "status": o[5],
-            "timestamp": o[6],
-            "delivered_data": o[7] or "",
-            "order_code": o[8] or f"ORD-{o[0]}",
-            "expiry_date": o[9] or "Lifetime / Non-expiring",
-            "total_amount": float(o[12] or 0) if len(o) > 12 else 0,
+            "order_id": o["order_id"],
+            "item_name": o["item_name"],
+            "quantity": o["quantity"],
+            "payment_method": o["payment_method"],
+            "status": o["status"],
+            "timestamp": o["timestamp"],
+            "delivered_data": o["delivered_data"] or "",
+            "order_code": o["order_code"] or f"ORD-{o['order_id']}",
+            "expiry_date": o["expiry_date"] or "Lifetime / Non-expiring",
+            "total_amount": float(o.get("total_amount") or 0),
             "outline_key_id": outline_key_id,
             "outline_usage": usage,
         })

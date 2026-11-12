@@ -72,6 +72,12 @@ jobs:
                   1
               )
 
+          queries = """<queries>
+                  <intent><action android:name="android.intent.action.VIEW"/><data android:scheme="https"/></intent>
+                  <intent><action android:name="android.intent.action.VIEW"/><data android:scheme="tg"/></intent>"""
+          if '<queries>' in content and 'android:scheme="tg"' not in content:
+              content = content.replace('<queries>', queries, 1)
+
           content = content.replace('android:label="eni_store_app"', 'android:label="ENI Store"')
 
           with open(manifest_path, "w", encoding="utf-8") as f:

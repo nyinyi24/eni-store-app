@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import '../api_service.dart';
+import '../theme.dart';
 
 class ShopScreen extends StatefulWidget {
   const ShopScreen({super.key});
@@ -15,7 +16,9 @@ class _ShopScreenState extends State<ShopScreen> {
   List<dynamic> products = [];
   Map<String, dynamic> storeConfig = {};
   bool loading = true;
+  bool loadFailed = false;
   String searchQuery = '';
+  String selectedCategory = 'all';
 
   @override
   void initState() {
@@ -24,17 +27,25 @@ class _ShopScreenState extends State<ShopScreen> {
   }
 
   Future<void> loadStore() async {
-    setState(() => loading = true);
+    setState(() {
+      loading = true;
+      loadFailed = false;
+    });
     try {
       final prods = await ApiService.fetchProducts();
       final cfg = await ApiService.fetchStoreConfig();
+      if (!mounted) return;
       setState(() {
         products = prods;
         storeConfig = cfg;
         loading = false;
       });
     } catch (e) {
-      setState(() => loading = false);
+      if (!mounted) return;
+      setState(() {
+        loading = false;
+        loadFailed = true;
+      });
     }
   }
 
@@ -42,136 +53,397 @@ class _ShopScreenState extends State<ShopScreen> {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      backgroundColor: const Color(0xFF1E293B),
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      showDragHandle: true,
+      backgroundColor: AppColors.surface,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
       builder: (_) => CheckoutBottomSheet(item: item, storeConfig: storeConfig, onOrderSuccess: loadStore),
     );
   }
 
+  int _countFor(String catId) {
+    if (catId == 'all') return products.length;
+    return products.where((p) => categoryOf('${p['name'] ?? ''}').id == catId).length;
+  }
+
   @override
   Widget build(BuildContext context) {
+    final q = searchQuery.trim().toLowerCase();
     final filtered = products.where((p) {
-      final name = (p['name'] ?? '').toString().toLowerCase();
-      return name.contains(searchQuery.toLowerCase());
+      final name = '${p['name'] ?? ''}';
+      if (selectedCategory != 'all' && categoryOf(name).id != selectedCategory) return false;
+      if (q.isEmpty) return true;
+      return name.toLowerCase().contains(q) || '${p['details'] ?? ''}'.toLowerCase().contains(q);
     }).toList();
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('ENI Premium Store', style: TextStyle(fontWeight: FontWeight.bold)),
-        actions: [
-          IconButton(icon: const Icon(Icons.refresh), onPressed: loadStore),
-        ],
-      ),
-      body: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-            child: TextField(
-              onChanged: (val) => setState(() => searchQuery = val),
-              decoration: InputDecoration(
-                hintText: 'Search VPN, Telegram Premium, Gift Cards...',
-                prefixIcon: const Icon(Icons.search),
-                filled: true,
-                fillColor: const Color(0xFF1E293B),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
-              ),
-            ),
-          ),
-          Expanded(
-            child: loading
-                ? const Center(child: CircularProgressIndicator())
-                : RefreshIndicator(
-                    onRefresh: loadStore,
-                    child: ListView.builder(
-                      padding: const EdgeInsets.all(12),
-                      itemCount: filtered.length,
-                      itemBuilder: (context, idx) {
-                        final p = filtered[idx];
-                        final int stock = p['available_stock'] ?? 0;
-                        final bool hasDiscount = p['discount_percent'] != null;
+    final cats = <StoreCategory>[kAll, ...kCategories, kOther]
+        .where((c) => c.id == 'all' || _countFor(c.id) > 0)
+        .toList();
 
-                        return Card(
-                          color: const Color(0xFF1E293B),
-                          margin: const EdgeInsets.only(bottom: 12),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                          child: Padding(
-                            padding: const EdgeInsets.all(16),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(
-                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                  children: [
-                                    Expanded(
-                                      child: Text(
-                                        p['name'] ?? '',
-                                        style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
-                                      ),
-                                    ),
-                                    if (hasDiscount)
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                        decoration: BoxDecoration(
-                                          color: Colors.redAccent,
-                                          borderRadius: BorderRadius.circular(8),
-                                        ),
-                                        child: Text(
-                                          '-${p['discount_percent']}% OFF',
-                                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
-                                        ),
-                                      ),
-                                  ],
-                                ),
-                                const SizedBox(height: 6),
-                                Text(p['details'] ?? '', style: const TextStyle(color: Colors.white70)),
-                                const SizedBox(height: 12),
-                                Row(
-                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                  children: [
-                                    Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          '${p['price_mmk']} MMK  (\$${p['price_usd']})',
-                                          style: const TextStyle(
-                                            fontSize: 16,
-                                            fontWeight: FontWeight.bold,
-                                            color: Color(0xFF14B8A6),
-                                          ),
-                                        ),
-                                        Text(
-                                          stock > 0 ? 'In Stock: $stock' : 'Out of Stock',
-                                          style: TextStyle(
-                                            fontSize: 12,
-                                            color: stock > 0 ? Colors.greenAccent : Colors.redAccent,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                    ElevatedButton.icon(
-                                      onPressed: stock > 0 ? () => openCheckoutSheet(p) : null,
-                                      style: ElevatedButton.styleFrom(
-                                        backgroundColor: const Color(0xFF14B8A6),
-                                        foregroundColor: Colors.black,
-                                      ),
-                                      icon: const Icon(Icons.shopping_cart_checkout, size: 18),
-                                      label: Text(stock > 0 ? 'Buy Now' : 'Sold Out'),
-                                    ),
-                                  ],
-                                ),
-                              ],
-                            ),
-                          ),
-                        );
+    return Scaffold(
+      body: SafeArea(
+        child: RefreshIndicator(
+          onRefresh: loadStore,
+          child: CustomScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            slivers: [
+              SliverToBoxAdapter(child: _buildHeader()),
+              SliverToBoxAdapter(child: _buildSearch()),
+              SliverToBoxAdapter(child: _buildCategoryBar(cats)),
+              if (loading)
+                const SliverFillRemaining(
+                  hasScrollBody: false,
+                  child: Center(child: CircularProgressIndicator()),
+                )
+              else if (loadFailed)
+                SliverFillRemaining(
+                  hasScrollBody: false,
+                  child: _EmptyState(
+                    icon: Icons.cloud_off_rounded,
+                    title: 'Server နဲ့ ချိတ်ဆက်လို့မရပါ',
+                    subtitle: 'Internet နဲ့ API URL ကို စစ်ပြီး ပြန်ကြိုးစားပါ။',
+                    actionLabel: 'Retry',
+                    onAction: loadStore,
+                  ),
+                )
+              else if (filtered.isEmpty)
+                const SliverFillRemaining(
+                  hasScrollBody: false,
+                  child: _EmptyState(
+                    icon: Icons.search_off_rounded,
+                    title: 'ပစ္စည်း မတွေ့ပါ',
+                    subtitle: 'တခြား keyword သို့ category နဲ့ ရှာကြည့်ပါ။',
+                  ),
+                )
+              else
+                SliverPadding(
+                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 100),
+                  sliver: SliverGrid(
+                    gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                      maxCrossAxisExtent: 240,
+                      mainAxisExtent: 262,
+                      crossAxisSpacing: 12,
+                      mainAxisSpacing: 12,
+                    ),
+                    delegate: SliverChildBuilderDelegate(
+                      (context, idx) {
+                        final p = Map<String, dynamic>.from(filtered[idx] as Map);
+                        return ProductCard(product: p, onBuy: () => openCheckoutSheet(p));
                       },
+                      childCount: filtered.length,
                     ),
                   ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHeader() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+      child: Container(
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(22),
+          gradient: const LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [Color(0xFF0F766E), Color(0xFF155E75), Color(0xFF1E3A8A)],
+          ),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withAlpha(38),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.verified_rounded, size: 14),
+                        SizedBox(width: 4),
+                        Text('Trusted Digital Store', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700)),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  const Text(
+                    'ENI Premium Store',
+                    style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Premium account, VPN, Telegram & Gift Card များကို အလွယ်တကူ ဝယ်ယူပါ',
+                    style: TextStyle(fontSize: 12.5, color: Colors.white.withAlpha(215), height: 1.35),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 10),
+            Container(
+              width: 56,
+              height: 56,
+              decoration: BoxDecoration(
+                color: Colors.white.withAlpha(30),
+                borderRadius: BorderRadius.circular(18),
+              ),
+              child: const Icon(Icons.diamond_rounded, size: 30),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSearch() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+      child: TextField(
+        onChanged: (val) => setState(() => searchQuery = val),
+        decoration: InputDecoration(
+          hintText: 'Search VPN, Telegram, Gift Cards...',
+          prefixIcon: const Icon(Icons.search_rounded),
+          suffixIcon: IconButton(
+            icon: const Icon(Icons.refresh_rounded),
+            tooltip: 'Refresh',
+            onPressed: loadStore,
+          ),
+          contentPadding: const EdgeInsets.symmetric(vertical: 14),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCategoryBar(List<StoreCategory> cats) {
+    return SizedBox(
+      height: 48,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+        itemCount: cats.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 8),
+        itemBuilder: (context, i) {
+          final c = cats[i];
+          final selected = selectedCategory == c.id;
+          return GestureDetector(
+            onTap: () => setState(() => selectedCategory = c.id),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 180),
+              padding: const EdgeInsets.symmetric(horizontal: 14),
+              decoration: BoxDecoration(
+                color: selected ? c.color.withAlpha(45) : AppColors.surface,
+                borderRadius: BorderRadius.circular(24),
+                border: Border.all(color: selected ? c.color : AppColors.border),
+              ),
+              child: Row(
+                children: [
+                  Icon(c.icon, size: 17, color: selected ? c.color : AppColors.textDim),
+                  const SizedBox(width: 6),
+                  Text(
+                    c.label,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: selected ? Colors.white : AppColors.textDim,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    '${_countFor(c.id)}',
+                    style: TextStyle(fontSize: 11, color: selected ? c.color : AppColors.textDim),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _EmptyState extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final String? actionLabel;
+  final VoidCallback? onAction;
+  const _EmptyState({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    this.actionLabel,
+    this.onAction,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 56, color: AppColors.textDim),
+            const SizedBox(height: 12),
+            Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+            const SizedBox(height: 6),
+            Text(subtitle, textAlign: TextAlign.center, style: const TextStyle(color: AppColors.textDim)),
+            if (actionLabel != null) ...[
+              const SizedBox(height: 14),
+              FilledButton.icon(
+                onPressed: onAction,
+                icon: const Icon(Icons.refresh_rounded),
+                label: Text(actionLabel!),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class ProductCard extends StatelessWidget {
+  final Map<String, dynamic> product;
+  final VoidCallback onBuy;
+  const ProductCard({super.key, required this.product, required this.onBuy});
+
+  @override
+  Widget build(BuildContext context) {
+    final p = product;
+    final name = '${p['name'] ?? ''}'.replaceAll('‎', '').trim();
+    final int stock = (p['available_stock'] ?? 0) is num ? (p['available_stock'] as num).toInt() : 0;
+    final discount = p['discount_percent'];
+    final original = p['original_price_mmk'];
+    final color = colorForProduct(name);
+    final inStock = stock > 0;
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              IconTile(icon: iconForProduct(name), color: color, size: 44),
+              if (discount != null)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: AppColors.danger,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    '-${(discount as num).round()}%',
+                    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800),
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Text(
+            name,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, height: 1.25),
+          ),
+          const SizedBox(height: 3),
+          Text(
+            '${p['details'] ?? ''}',
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontSize: 11.5, color: AppColors.textDim, height: 1.3),
+          ),
+          const Spacer(),
+          if (original != null)
+            Text(
+              '${fmtMoney(original)} Ks',
+              style: const TextStyle(
+                fontSize: 11,
+                color: AppColors.textDim,
+                decoration: TextDecoration.lineThrough,
+              ),
+            ),
+          Text(
+            '${fmtMoney(p['price_mmk'])} Ks',
+            style: const TextStyle(fontSize: 16.5, fontWeight: FontWeight.w800, color: AppColors.primary),
+          ),
+          const SizedBox(height: 2),
+          Row(
+            children: [
+              Icon(Icons.circle, size: 8, color: inStock ? AppColors.ok : AppColors.danger),
+              const SizedBox(width: 5),
+              Expanded(
+                child: Text(
+                  inStock ? 'In stock: $stock  •  \$${p['price_usd']}' : 'Out of stock',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontSize: 11, color: inStock ? AppColors.textDim : AppColors.danger),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          SizedBox(
+            width: double.infinity,
+            height: 36,
+            child: FilledButton(
+              onPressed: inStock ? onBuy : null,
+              style: FilledButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                foregroundColor: Colors.black,
+                padding: EdgeInsets.zero,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(inStock ? Icons.shopping_bag_rounded : Icons.block_rounded, size: 16),
+                  const SizedBox(width: 6),
+                  Text(inStock ? 'Buy Now' : 'Sold Out', style: const TextStyle(fontWeight: FontWeight.w800)),
+                ],
+              ),
+            ),
           ),
         ],
       ),
     );
   }
 }
+
+class _PayMethod {
+  final String value;
+  final String label;
+  final String hint;
+  final IconData icon;
+  final Color color;
+  const _PayMethod(this.value, this.label, this.hint, this.icon, this.color);
+}
+
+const List<_PayMethod> _payMethods = [
+  _PayMethod('KPay', 'KBZPay', 'Screenshot တင်ပါ', Icons.phone_android_rounded, Color(0xFF2563EB)),
+  _PayMethod('WavePay', 'WavePay', 'Screenshot တင်ပါ', Icons.waves_rounded, Color(0xFFFACC15)),
+  _PayMethod('Wallet', 'Wallet Balance', 'ချက်ချင်း Auto ပို့ပေး', Icons.account_balance_wallet_rounded, Color(0xFF14B8A6)),
+  _PayMethod('USDT_BEP20', 'USDT (BEP20)', 'Auto verify', Icons.currency_bitcoin_rounded, Color(0xFF22C55E)),
+  _PayMethod('USDT_ERC20', 'USDT (ERC20)', 'Auto verify', Icons.currency_bitcoin_rounded, Color(0xFFA78BFA)),
+  _PayMethod('BINANCE_PAY', 'Binance Pay', 'Auto verify', Icons.payments_rounded, Color(0xFFF59E0B)),
+];
 
 class CheckoutBottomSheet extends StatefulWidget {
   final Map<String, dynamic> item;
@@ -198,17 +470,32 @@ class _CheckoutBottomSheetState extends State<CheckoutBottomSheet> {
   bool submitting = false;
   Map<String, dynamic>? createdOrder;
 
+  @override
+  void dispose() {
+    couponCtrl.dispose();
+    targetUserCtrl.dispose();
+    txHashCtrl.dispose();
+    super.dispose();
+  }
+
   bool get needsTargetUsername {
     final name = (widget.item['name'] ?? '').toString().toLowerCase();
     return (name.contains('telegram') || name.contains('tg ')) &&
         (name.contains('premium') || name.contains('star'));
   }
 
+  num get unitPrice {
+    final v = widget.item['price_mmk'];
+    return v is num ? v : (num.tryParse('$v') ?? 0);
+  }
+
+  void _snack(String msg, {Color? color}) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg), backgroundColor: color));
+  }
+
   Future<void> placeOrder() async {
     if (needsTargetUsername && targetUserCtrl.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter target Telegram @username')),
-      );
+      _snack('Please enter target Telegram @username');
       return;
     }
 
@@ -220,6 +507,7 @@ class _CheckoutBottomSheetState extends State<CheckoutBottomSheet> {
       couponCode: couponCtrl.text.trim().isEmpty ? null : couponCtrl.text.trim(),
       targetUsername: targetUserCtrl.text.trim().isEmpty ? null : targetUserCtrl.text.trim(),
     );
+    if (!mounted) return;
     setState(() => submitting = false);
 
     if (res['ok'] == true) {
@@ -227,23 +515,17 @@ class _CheckoutBottomSheetState extends State<CheckoutBottomSheet> {
       if (orderData['wallet_paid'] == true) {
         Navigator.pop(context);
         widget.onOrderSuccess();
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              orderData['auto_delivered'] == true
-                  ? '✅ Paid via Wallet! Product delivered to My Orders.'
-                  : '✅ Paid via Wallet! Admin is preparing your delivery.',
-            ),
-            backgroundColor: Colors.green,
-          ),
+        _snack(
+          orderData['auto_delivered'] == true
+              ? '✅ Paid via Wallet! Product delivered to My Orders.'
+              : '✅ Paid via Wallet! Admin is preparing your delivery.',
+          color: Colors.green,
         );
       } else {
         setState(() => createdOrder = orderData);
       }
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(res['error'] ?? 'Failed'), backgroundColor: Colors.redAccent),
-      );
+      _snack(res['error'] ?? 'Failed', color: Colors.redAccent);
     }
   }
 
@@ -254,18 +536,15 @@ class _CheckoutBottomSheetState extends State<CheckoutBottomSheet> {
 
     setState(() => submitting = true);
     final res = await ApiService.uploadPaymentProof(createdOrder!['order_id'], File(picked.path));
+    if (!mounted) return;
     setState(() => submitting = false);
 
     if (res['ok'] == true) {
       Navigator.pop(context);
       widget.onOrderSuccess();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(res['message'] ?? 'Submitted!'), backgroundColor: Colors.green),
-      );
+      _snack(res['message'] ?? 'Submitted!', color: Colors.green);
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(res['error'] ?? 'Upload error'), backgroundColor: Colors.redAccent),
-      );
+      _snack(res['error'] ?? 'Upload error', color: Colors.redAccent);
     }
   }
 
@@ -281,33 +560,29 @@ class _CheckoutBottomSheetState extends State<CheckoutBottomSheet> {
       network: net,
       txHashOrNote: txHashCtrl.text.trim(),
     );
+    if (!mounted) return;
     setState(() => submitting = false);
 
     if (res['ok'] == true) {
       Navigator.pop(context);
       widget.onOrderSuccess();
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('✅ Crypto Payment Verified! Check My Orders for your account/key.'),
-          backgroundColor: Colors.green,
-        ),
-      );
+      _snack('✅ Crypto Payment Verified! Check Orders for your account/key.', color: Colors.green);
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(res['error'] ?? 'Verification failed'), backgroundColor: Colors.redAccent),
-      );
+      _snack(res['error'] ?? 'Verification failed', color: Colors.redAccent);
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final payDetails = (widget.storeConfig['payment_methods'] ?? {}) as Map<String, dynamic>;
+    final name = '${widget.item['name'] ?? ''}'.replaceAll('‎', '').trim();
+    final maxQty = (widget.item['available_stock'] ?? 1) is num ? (widget.item['available_stock'] as num).toInt() : 1;
 
     return Padding(
       padding: EdgeInsets.only(
         left: 20,
         right: 20,
-        top: 20,
+        top: 4,
         bottom: MediaQuery.of(context).viewInsets.bottom + 24,
       ),
       child: SingleChildScrollView(
@@ -316,79 +591,147 @@ class _CheckoutBottomSheetState extends State<CheckoutBottomSheet> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text(widget.item['name'] ?? '', style: const TextStyle(fontSize: 19, fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 8),
-                  Text(widget.item['description_mm'] ?? '', style: const TextStyle(fontSize: 13, color: Colors.white70)),
-                  const Divider(height: 24),
+                  Row(
+                    children: [
+                      IconTile(icon: iconForProduct(name), color: colorForProduct(name)),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(name, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
+                            const SizedBox(height: 2),
+                            Text(
+                              '${fmtMoney(unitPrice)} Ks',
+                              style: const TextStyle(
+                                  color: AppColors.primary, fontWeight: FontWeight.w800, fontSize: 15),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  if ('${widget.item['description_mm'] ?? ''}'.isNotEmpty) ...[
+                    const SizedBox(height: 10),
+                    Text('${widget.item['description_mm']}',
+                        style: const TextStyle(fontSize: 12.5, color: AppColors.textDim, height: 1.4)),
+                  ],
+                  const SizedBox(height: 16),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text('Quantity:', style: TextStyle(fontSize: 16)),
-                      Row(
-                        children: [
-                          IconButton(
-                            onPressed: quantity > 1 ? () => setState(() => quantity--) : null,
-                            icon: const Icon(Icons.remove_circle_outline),
-                          ),
-                          Text('$quantity', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                          IconButton(
-                            onPressed: quantity < (widget.item['available_stock'] ?? 1)
-                                ? () => setState(() => quantity++)
-                                : null,
-                            icon: const Icon(Icons.add_circle_outline),
-                          ),
-                        ],
+                      const Text('Quantity', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
+                      Container(
+                        decoration: BoxDecoration(
+                          color: AppColors.surfaceHi,
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: Row(
+                          children: [
+                            IconButton(
+                              onPressed: quantity > 1 ? () => setState(() => quantity--) : null,
+                              icon: const Icon(Icons.remove_rounded),
+                            ),
+                            Text('$quantity', style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
+                            IconButton(
+                              onPressed: quantity < maxQty ? () => setState(() => quantity++) : null,
+                              icon: const Icon(Icons.add_rounded),
+                            ),
+                          ],
+                        ),
                       ),
                     ],
                   ),
                   if (needsTargetUsername) ...[
-                    const SizedBox(height: 10),
+                    const SizedBox(height: 12),
                     TextField(
                       controller: targetUserCtrl,
                       decoration: const InputDecoration(
                         labelText: 'Target Telegram @username',
                         hintText: '@yourusername',
-                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.alternate_email_rounded),
                       ),
                     ),
                   ],
-                  const SizedBox(height: 10),
-                  DropdownButtonFormField<String>(
-                    value: paymentMethod,
-                    decoration: const InputDecoration(labelText: 'Payment Method', border: OutlineInputBorder()),
-                    items: const [
-                      DropdownMenuItem(value: 'KPay', child: Text('KBZPay (MMK Receipt)')),
-                      DropdownMenuItem(value: 'WavePay', child: Text('WavePay (MMK Receipt)')),
-                      DropdownMenuItem(value: 'Wallet', child: Text('Instant Wallet Balance (Auto-Deliver)')),
-                      DropdownMenuItem(value: 'USDT_BEP20', child: Text('USDT (BEP20 Auto-Verify)')),
-                      DropdownMenuItem(value: 'USDT_ERC20', child: Text('USDT (ERC20 Auto-Verify)')),
-                      DropdownMenuItem(value: 'BINANCE_PAY', child: Text('Binance Pay (Auto-Verify)')),
-                    ],
-                    onChanged: (v) => setState(() => paymentMethod = v!),
+                  const SizedBox(height: 16),
+                  const Text('Payment Method', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: _payMethods.map((m) {
+                      final sel = paymentMethod == m.value;
+                      return GestureDetector(
+                        onTap: () => setState(() => paymentMethod = m.value),
+                        child: Container(
+                          width: (MediaQuery.of(context).size.width - 48) / 2,
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: sel ? m.color.withAlpha(35) : AppColors.surfaceHi,
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(color: sel ? m.color : AppColors.border, width: sel ? 1.6 : 1),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(m.icon, color: m.color, size: 22),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(m.label,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700)),
+                                    Text(m.hint,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(fontSize: 10.5, color: AppColors.textDim)),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    }).toList(),
                   ),
-                  const SizedBox(height: 10),
+                  const SizedBox(height: 14),
                   TextField(
                     controller: couponCtrl,
                     decoration: const InputDecoration(
                       labelText: 'Coupon Code (Optional)',
                       hintText: 'ENI-XXXXXX',
-                      border: OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.local_offer_outlined),
                     ),
                   ),
                   const SizedBox(height: 18),
                   SizedBox(
                     width: double.infinity,
-                    height: 48,
-                    child: ElevatedButton(
+                    height: 50,
+                    child: FilledButton(
                       onPressed: submitting ? null : placeOrder,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF14B8A6),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: AppColors.primary,
                         foregroundColor: Colors.black,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                       ),
                       child: submitting
-                          ? const CircularProgressIndicator(color: Colors.black)
-                          : const Text('CONFIRM & RESERVE STOCK (10 MIN)', style: TextStyle(fontWeight: FontWeight.bold)),
+                          ? const SizedBox(
+                              width: 22,
+                              height: 22,
+                              child: CircularProgressIndicator(color: Colors.black, strokeWidth: 2.5),
+                            )
+                          : Text(
+                              'Confirm Order  •  ${fmtMoney(unitPrice * quantity)} Ks',
+                              style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
+                            ),
                     ),
+                  ),
+                  const SizedBox(height: 6),
+                  const Center(
+                    child: Text('Stock ကို ၁၀ မိနစ် reserve လုပ်ပေးထားပါမယ်',
+                        style: TextStyle(fontSize: 11, color: AppColors.textDim)),
                   ),
                 ],
               )
@@ -396,29 +739,54 @@ class _CheckoutBottomSheetState extends State<CheckoutBottomSheet> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text(
-                    'Order Reserved: ${createdOrder!['order_code']}',
-                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF14B8A6)),
+                  Row(
+                    children: [
+                      const Icon(Icons.check_circle_rounded, color: AppColors.ok, size: 28),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          'Order Reserved: ${createdOrder!['order_code']}',
+                          style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
+                        ),
+                      ),
+                    ],
                   ),
-                  const SizedBox(height: 8),
-                  Text('Total Payable: ${createdOrder!['total_amount']} MMK (\$${createdOrder!['total_usd']} USDT)'),
-                  const SizedBox(height: 12),
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(color: Colors.black26, borderRadius: BorderRadius.circular(10)),
+                  const SizedBox(height: 10),
+                  SectionCard(
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text('Total Payable', style: TextStyle(color: AppColors.textDim)),
+                        Text(
+                          '${fmtMoney(createdOrder!['total_amount'])} Ks  (\$${createdOrder!['total_usd']})',
+                          style: const TextStyle(fontWeight: FontWeight.w800, color: AppColors.primary),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  SectionCard(
                     child: Row(
                       children: [
                         Expanded(
-                          child: SelectableText(
-                            'Send to ($paymentMethod):\n${payDetails[paymentMethod] ?? 'Ask Admin'}',
-                            style: const TextStyle(fontWeight: FontWeight.bold),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text('Send to ($paymentMethod)',
+                                  style: const TextStyle(fontSize: 12, color: AppColors.textDim)),
+                              const SizedBox(height: 4),
+                              SelectableText(
+                                '${payDetails[paymentMethod] ?? 'Ask Admin'}',
+                                style: const TextStyle(fontWeight: FontWeight.w700),
+                              ),
+                            ],
                           ),
                         ),
                         IconButton(
-                          icon: const Icon(Icons.copy),
+                          icon: const Icon(Icons.copy_rounded),
                           onPressed: () {
                             Clipboard.setData(ClipboardData(text: '${payDetails[paymentMethod] ?? ''}'));
-                            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Copied!')));
+                            _snack('Copied!');
                           },
                         ),
                       ],
@@ -428,11 +796,16 @@ class _CheckoutBottomSheetState extends State<CheckoutBottomSheet> {
                   if (paymentMethod == 'KPay' || paymentMethod == 'WavePay')
                     SizedBox(
                       width: double.infinity,
-                      height: 48,
-                      child: ElevatedButton.icon(
+                      height: 50,
+                      child: FilledButton.icon(
                         onPressed: submitting ? null : pickAndUploadReceipt,
-                        icon: const Icon(Icons.upload_file),
-                        label: const Text('UPLOAD PAYMENT SCREENSHOT'),
+                        icon: const Icon(Icons.upload_file_rounded),
+                        label: const Text('Upload Payment Screenshot'),
+                        style: FilledButton.styleFrom(
+                          backgroundColor: AppColors.primary,
+                          foregroundColor: Colors.black,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                        ),
                       ),
                     )
                   else ...[
@@ -442,17 +815,21 @@ class _CheckoutBottomSheetState extends State<CheckoutBottomSheet> {
                         labelText: paymentMethod == 'BINANCE_PAY'
                             ? 'Binance Order ID or Note (${createdOrder!['order_code']})'
                             : 'On-Chain Transaction Hash (0x...)',
-                        border: const OutlineInputBorder(),
                       ),
                     ),
                     const SizedBox(height: 12),
                     SizedBox(
                       width: double.infinity,
-                      height: 48,
-                      child: ElevatedButton.icon(
+                      height: 50,
+                      child: FilledButton.icon(
                         onPressed: submitting ? null : verifyCrypto,
-                        icon: const Icon(Icons.verified),
-                        label: const Text('AUTO-VERIFY CRYPTO & GET KEY'),
+                        icon: const Icon(Icons.verified_rounded),
+                        label: const Text('Auto-Verify & Get Key'),
+                        style: FilledButton.styleFrom(
+                          backgroundColor: AppColors.primary,
+                          foregroundColor: Colors.black,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                        ),
                       ),
                     ),
                   ],

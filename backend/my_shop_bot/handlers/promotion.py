@@ -14,6 +14,8 @@ from database import (
 
 def send_promotion_gift_choice(bot, order_id, user_id):
     """Offer one gift after a completed qualifying order, only once."""
+    if int(user_id) >= 9000000000:  # app-only account, no Telegram chat
+        return False
     if not is_order_promotion_eligible(order_id) or get_promotion_claim(order_id):
         return False
 
