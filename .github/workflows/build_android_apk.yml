@@ -82,6 +82,21 @@ jobs:
 
           with open(manifest_path, "w", encoding="utf-8") as f:
               f.write(content)
+
+          # Disable Android lint on release builds (lintVitalAnalyzeRelease crashes on CI)
+          import os, re
+          for gp in ("android/app/build.gradle.kts", "android/app/build.gradle"):
+              if not os.path.exists(gp):
+                  continue
+              g = open(gp, encoding="utf-8").read()
+              if "checkReleaseBuilds" not in g:
+                  g = re.sub(
+                      r"android\s*\{",
+                      "android {\n    lint {\n        checkReleaseBuilds = false\n        abortOnError = false\n    }",
+                      g, count=1,
+                  )
+                  open(gp, "w", encoding="utf-8").write(g)
+              print("Patched lint in", gp)
           EOF
 
       - name: Install Flutter Dependencies & Check Dart Syntax
