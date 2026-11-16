@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../api_service.dart';
 import '../theme.dart';
+import '../notifications.dart';
 
 class ProfileScreen extends StatefulWidget {
   final VoidCallback onLogout;
@@ -306,7 +307,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Profile'),
-        actions: [IconButton(icon: const Icon(Icons.refresh_rounded), onPressed: load)],
+        actions: [
+          const NotificationBell(),
+          IconButton(icon: const Icon(Icons.refresh_rounded), onPressed: load),
+        ],
       ),
       body: loading
           ? const Center(child: CircularProgressIndicator())

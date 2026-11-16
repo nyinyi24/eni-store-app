@@ -45,6 +45,46 @@ class ApiService {
     }
   }
 
+  static Map<String, dynamic> _decodeText(String body) {
+    try {
+      final decoded = jsonDecode(body);
+      if (decoded is Map<String, dynamic>) return decoded;
+    } catch (_) {}
+    return {'detail': 'Server က မမှန်ကန်တဲ့ အဖြေ ပြန်ပေးပါတယ်။ ခဏနေမှ ပြန်ကြိုးစားပါ။'};
+  }
+
+  /// Called when the server says the saved login token is no longer valid.
+  static void Function()? onSessionExpired;
+
+  static void _check401(int statusCode) {
+    if (statusCode == 401) {
+      logout();
+      onSessionExpired?.call();
+    }
+  }
+
+  /// Turn the server's `detail` (String / {message} / validation list) into text for the user.
+  static String _detailText(Map<String, dynamic> data, String fallback) {
+    final d = data['detail'];
+    if (d is String && d.trim().isNotEmpty) return d;
+    if (d is Map && d['message'] != null) return '${d['message']}';
+    if (d is List) return 'ထည့်သွင်းထားတဲ့ အချက်အလက် မမှန်ကန်ပါ။ ပြန်စစ်ပါ။';
+    return fallback;
+  }
+
+  static String _netErr(Object e) {
+    if (e is TimeoutException) {
+      return 'Server က အချိန်မီ မဖြေပါ။ Internet နှေးနေနိုင်ပါတယ်၊ ခဏနေမှ ပြန်ကြိုးစားပါ။';
+    }
+    if (e is SocketException) {
+      return 'Internet ချိတ်ဆက်မှု မရှိပါ သို့မဟုတ် Server ပိတ်နေပါတယ်။ Wi-Fi / Mobile data ကို စစ်ပါ။';
+    }
+    if (e is http.ClientException) {
+      return 'Server နဲ့ ချိတ်ဆက်လို့မရပါ။ Internet ကို စစ်ပြီး ပြန်ကြိုးစားပါ။';
+    }
+    return 'မထင်မှတ်တဲ့ ပြဿနာ ဖြစ်သွားပါတယ်။ ပြန်ကြိုးစားပါ။';
+  }
+
   static Future<Map<String, dynamic>> login(String phoneOrEmail, String password) async {
     if (phoneOrEmail.length < 4 || password.length < 4) {
       return {'ok': false, 'error': 'Username/Phone နှင့် Password သည် အနည်းဆုံး ၄ လုံး ရှိရပါမည်။'};
@@ -68,13 +108,13 @@ class ApiService {
         await prefs.setString('jwt_token', data['token']);
         return {'ok': true, 'data': data};
       }
-      return {'ok': false, 'error': data['detail'] ?? 'Login failed (HTTP ${res.statusCode})'};
+      return {'ok': false, 'error': _detailText(data, 'Login failed (HTTP ${res.statusCode})')};
     } on TimeoutException {
       return {'ok': false, 'error': 'Server သို့ ချိတ်ဆက်ချိန် ကုန်ဆုံးသွားပါသည်။ (VPS Port 8000 ပွင့်မပွင့် စစ်ဆေးပါ)'};
     } on SocketException catch (e) {
       return {'ok': false, 'error': 'Server သို့ ချိတ်ဆက်၍မရပါ (${e.message})။ API URL နှင့် Server Run ထားခြင်း ရှိမရှိ စစ်ပါ။'};
     } catch (e) {
-      return {'ok': false, 'error': 'Connection Error: $e'};
+      return {'ok': false, 'error': _netErr(e)};
     }
   }
 
@@ -108,13 +148,13 @@ class ApiService {
         await prefs.setString('jwt_token', data['token']);
         return {'ok': true, 'data': data};
       }
-      return {'ok': false, 'error': data['detail'] ?? 'Registration failed (HTTP ${res.statusCode})'};
+      return {'ok': false, 'error': _detailText(data, 'Registration failed (HTTP ${res.statusCode})')};
     } on TimeoutException {
       return {'ok': false, 'error': 'Server သို့ ချိတ်ဆက်ချိန် ကုန်ဆုံးသွားပါသည်။ (VPS Port 8000 ပွင့်မပွင့် စစ်ဆေးပါ)'};
     } on SocketException catch (e) {
       return {'ok': false, 'error': 'Server သို့ ချိတ်ဆက်၍မရပါ (${e.message})။ API URL နှင့် Server Run ထားခြင်း ရှိမရှိ စစ်ပါ။'};
     } catch (e) {
-      return {'ok': false, 'error': 'Connection Error: $e'};
+      return {'ok': false, 'error': _netErr(e)};
     }
   }
 
@@ -151,12 +191,13 @@ class ApiService {
         body: jsonEncode({'code': code, 'total_amount': totalAmount}),
       );
       final data = _safeDecode(res);
+      _check401(res.statusCode);
       if (res.statusCode == 200) {
         return {'ok': true, 'coupon': data['coupon']};
       }
-      return {'ok': false, 'error': data['detail'] ?? 'Invalid coupon'};
+      return {'ok': false, 'error': _detailText(data, 'Invalid coupon')};
     } catch (e) {
-      return {'ok': false, 'error': 'Network error: $e'};
+      return {'ok': false, 'error': _netErr(e)};
     }
   }
 
@@ -185,12 +226,18 @@ class ApiService {
         }),
       );
       final data = _safeDecode(res);
+      _check401(res.statusCode);
       if (res.statusCode == 200) {
         return {'ok': true, 'order': data};
       }
-      return {'ok': false, 'error': data['detail'] ?? 'Order creation failed'};
+      final det = data['detail'];
+      return {
+        'ok': false,
+        'error': _detailText(data, 'Order မလုပ်နိုင်ပါ။ ပြန်ကြိုးစားပါ။'),
+        'code': det is Map ? det['code'] : null,
+      };
     } catch (e) {
-      return {'ok': false, 'error': 'Network error: $e'};
+      return {'ok': false, 'error': _netErr(e)};
     }
   }
 
@@ -201,15 +248,16 @@ class ApiService {
       final req = http.MultipartRequest('POST', Uri.parse('$baseUrl/orders/$orderId/proof'));
       req.headers['Authorization'] = 'Bearer $token';
       req.files.add(await http.MultipartFile.fromPath('file', imageFile.path));
-      final streamed = await req.send();
+      final streamed = await req.send().timeout(const Duration(seconds: 60));
       final body = await streamed.stream.bytesToString();
-      final data = jsonDecode(body);
+      _check401(streamed.statusCode);
+      final data = _decodeText(body);
       if (streamed.statusCode == 200) {
         return {'ok': true, 'message': data['message']};
       }
-      return {'ok': false, 'error': data['detail'] ?? 'Upload failed'};
+      return {'ok': false, 'error': _detailText(data, 'Upload failed')};
     } catch (e) {
-      return {'ok': false, 'error': 'Upload error: $e'};
+      return {'ok': false, 'error': _netErr(e)};
     }
   }
 
@@ -234,12 +282,13 @@ class ApiService {
         }),
       );
       final data = _safeDecode(res);
+      _check401(res.statusCode);
       if (res.statusCode == 200) {
         return {'ok': true, 'data': data};
       }
-      return {'ok': false, 'error': data['detail'] ?? 'Verification failed'};
+      return {'ok': false, 'error': _detailText(data, 'Verification failed')};
     } catch (e) {
-      return {'ok': false, 'error': 'Verification error: $e'};
+      return {'ok': false, 'error': _netErr(e)};
     }
   }
 
@@ -249,10 +298,11 @@ class ApiService {
     final res = await http.get(
       Uri.parse('$baseUrl/user/dashboard'),
       headers: {'Authorization': 'Bearer $token'},
-    );
+    ).timeout(const Duration(seconds: 15));
     if (res.statusCode == 200) {
       return _safeDecode(res);
     }
+    _check401(res.statusCode);
     throw Exception('Session expired');
   }
 
@@ -265,12 +315,13 @@ class ApiService {
         headers: {'Authorization': 'Bearer $token'},
       );
       final data = _safeDecode(res);
+      _check401(res.statusCode);
       if (res.statusCode == 200) {
         return {'ok': true, 'data': data};
       }
-      return {'ok': false, 'error': data['detail'] ?? 'Already checked in'};
+      return {'ok': false, 'error': _detailText(data, 'Already checked in')};
     } catch (e) {
-      return {'ok': false, 'error': 'Network error: $e'};
+      return {'ok': false, 'error': _netErr(e)};
     }
   }
 
@@ -283,12 +334,13 @@ class ApiService {
         headers: {'Authorization': 'Bearer $token'},
       );
       final data = _safeDecode(res);
+      _check401(res.statusCode);
       if (res.statusCode == 200) {
         return {'ok': true, 'data': data};
       }
-      return {'ok': false, 'error': data['detail'] ?? 'Not enough points'};
+      return {'ok': false, 'error': _detailText(data, 'Not enough points')};
     } catch (e) {
-      return {'ok': false, 'error': 'Network error: $e'};
+      return {'ok': false, 'error': _netErr(e)};
     }
   }
 
@@ -306,15 +358,16 @@ class ApiService {
       );
       req.headers['Authorization'] = 'Bearer $token';
       req.files.add(await http.MultipartFile.fromPath('file', imageFile.path));
-      final streamed = await req.send();
+      final streamed = await req.send().timeout(const Duration(seconds: 60));
       final body = await streamed.stream.bytesToString();
-      final data = jsonDecode(body);
+      _check401(streamed.statusCode);
+      final data = _decodeText(body);
       if (streamed.statusCode == 200) {
         return {'ok': true, 'message': data['message']};
       }
-      return {'ok': false, 'error': data['detail'] ?? 'Top-up failed'};
+      return {'ok': false, 'error': _detailText(data, 'Top-up failed')};
     } catch (e) {
-      return {'ok': false, 'error': 'Upload error: $e'};
+      return {'ok': false, 'error': _netErr(e)};
     }
   }
 
@@ -343,14 +396,15 @@ class ApiService {
         res = await http.post(uri, headers: headers, body: payload).timeout(const Duration(seconds: 20));
       }
       final data = _safeDecode(res);
+      _check401(res.statusCode);
       if (res.statusCode == 200) {
         return {'ok': true, 'data': data};
       }
-      return {'ok': false, 'error': data['detail'] ?? 'Request failed (HTTP ${res.statusCode})'};
+      return {'ok': false, 'error': _detailText(data, 'Request failed (HTTP ${res.statusCode})')};
     } on TimeoutException {
       return {'ok': false, 'error': 'Server သို့ ချိတ်ဆက်ချိန် ကုန်ဆုံးသွားပါသည်။'};
     } catch (e) {
-      return {'ok': false, 'error': 'Network error: $e'};
+      return {'ok': false, 'error': _netErr(e)};
     }
   }
 
@@ -378,4 +432,11 @@ class ApiService {
     }
     return res;
   }
+
+  // ---------------- Notifications ----------------
+
+  static Future<Map<String, dynamic>> fetchNotifications() => _authRequest('GET', '/notifications');
+
+  static Future<Map<String, dynamic>> markNotificationsRead([List<int>? ids]) =>
+      _authRequest('POST', '/notifications/read', body: {'ids': ids});
 }

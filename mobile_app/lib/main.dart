@@ -6,6 +6,9 @@ import 'screens/orders_screen.dart';
 import 'screens/wallet_screen.dart';
 import 'screens/profile_screen.dart';
 import 'theme.dart';
+import 'notifications.dart';
+
+final GlobalKey<ScaffoldMessengerState> messengerKey = GlobalKey<ScaffoldMessengerState>();
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -55,6 +58,7 @@ class _EniStoreAppState extends State<EniStoreApp> with WidgetsBindingObserver {
     return MaterialApp(
       title: 'ENI Premium Store',
       debugShowCheckedModeBanner: false,
+      scaffoldMessengerKey: messengerKey,
       themeMode: mode,
       theme: buildAppTheme(Brightness.light),
       darkTheme: buildAppTheme(Brightness.dark),
@@ -81,7 +85,20 @@ class _RootWrapperState extends State<RootWrapper> {
   @override
   void initState() {
     super.initState();
+    ApiService.onSessionExpired = () {
+      if (!mounted) return;
+      setState(() => isAuthenticated = false);
+      messengerKey.currentState?.showSnackBar(
+        const SnackBar(content: Text('Login သက်တမ်းကုန်သွားပါပြီ။ ပြန်ဝင်ပါ။')),
+      );
+    };
     checkAuth();
+  }
+
+  @override
+  void dispose() {
+    ApiService.onSessionExpired = null;
+    super.dispose();
   }
 
   Future<void> checkAuth() async {
@@ -122,6 +139,39 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
   void initState() {
     super.initState();
     _loadConfig();
+    final svc = NotificationService.instance;
+    svc.onFresh = _onFreshNotifications;
+    svc.start();
+  }
+
+  @override
+  void dispose() {
+    final svc = NotificationService.instance;
+    svc.onFresh = null;
+    svc.stop();
+    super.dispose();
+  }
+
+  void _onFreshNotifications(List<AppNotification> fresh) {
+    if (!mounted || fresh.isEmpty) return;
+    final first = fresh.first;
+    final extra = fresh.length > 1 ? '  (+${fresh.length - 1})' : '';
+    final isOrder = first.kind.startsWith('order_');
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          duration: const Duration(seconds: 6),
+          content: Text('${first.title}$extra\n${first.body}'),
+          action: SnackBarAction(
+            label: 'ကြည့်မယ်',
+            onPressed: () {
+              if (!mounted) return;
+              setState(() => _selectedIndex = isOrder ? 1 : 2);
+            },
+          ),
+        ),
+      );
   }
 
   Future<void> _loadConfig() async {

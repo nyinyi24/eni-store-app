@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import '../api_service.dart';
 import '../theme.dart';
+import '../notifications.dart';
 
 class WalletScreen extends StatefulWidget {
   const WalletScreen({super.key});
@@ -19,6 +20,17 @@ class _WalletScreenState extends State<WalletScreen> {
   void initState() {
     super.initState();
     loadProfile();
+    NotificationService.instance.dataTick.addListener(_onTick);
+  }
+
+  void _onTick() {
+    if (mounted) loadProfile();
+  }
+
+  @override
+  void dispose() {
+    NotificationService.instance.dataTick.removeListener(_onTick);
+    super.dispose();
   }
 
   Future<void> loadProfile() async {
@@ -46,7 +58,7 @@ class _WalletScreenState extends State<WalletScreen> {
       );
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(res['error'] ?? 'Already checked in')),
+        SnackBar(content: Text('${res['error'] ?? 'Check-in မလုပ်နိုင်ပါ'}'), backgroundColor: Colors.redAccent),
       );
     }
   }
@@ -57,13 +69,13 @@ class _WalletScreenState extends State<WalletScreen> {
       loadProfile();
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('🎉 Redeemed 500 Points for 1,000 MMK Wallet Balance!'),
+          content: Text('🎉 Points 500 ကို Wallet 1,000 Ks အဖြစ် လဲပြီးပါပြီ!'),
           backgroundColor: Colors.green,
         ),
       );
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(res['error'] ?? 'Redeem failed')),
+        SnackBar(content: Text('${res['error'] ?? 'Redeem မလုပ်နိုင်ပါ'}'), backgroundColor: Colors.redAccent),
       );
     }
   }
@@ -112,7 +124,14 @@ class _WalletScreenState extends State<WalletScreen> {
             TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
             FilledButton.icon(
               onPressed: () async {
-                final amt = double.tryParse(amountCtrl.text.trim()) ?? 0;
+                final amt = double.tryParse(amountCtrl.text.trim().replaceAll(',', '')) ?? 0;
+                if (amt < 1000) {
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                    content: Text('Top-Up ငွေပမာဏ အနည်းဆုံး 1,000 Ks ထည့်ပါ။'),
+                    backgroundColor: Colors.redAccent,
+                  ));
+                  return;
+                }
                 final picker = ImagePicker();
                 final picked = await picker.pickImage(source: ImageSource.gallery);
                 if (picked == null) return;
@@ -124,7 +143,10 @@ class _WalletScreenState extends State<WalletScreen> {
                 );
                 if (!mounted) return;
                 ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text(res['message'] ?? res['error'] ?? 'Done')),
+                  SnackBar(
+                    content: Text('${res['message'] ?? res['error'] ?? 'Done'}'),
+                    backgroundColor: res['ok'] == true ? Colors.green : Colors.redAccent,
+                  ),
                 );
               },
               icon: const Icon(Icons.upload_rounded),
@@ -142,6 +164,7 @@ class _WalletScreenState extends State<WalletScreen> {
       appBar: AppBar(
         title: const Text('Wallet & Rewards'),
         actions: [
+          const NotificationBell(),
           IconButton(icon: const Icon(Icons.refresh_rounded), onPressed: loadProfile),
         ],
       ),

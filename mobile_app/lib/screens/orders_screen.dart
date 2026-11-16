@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../api_service.dart';
 import '../theme.dart';
+import '../notifications.dart';
 
 class OrdersScreen extends StatefulWidget {
   const OrdersScreen({super.key});
@@ -19,6 +20,17 @@ class _OrdersScreenState extends State<OrdersScreen> {
   void initState() {
     super.initState();
     loadOrders();
+    NotificationService.instance.dataTick.addListener(_onTick);
+  }
+
+  void _onTick() {
+    if (mounted) loadOrders();
+  }
+
+  @override
+  void dispose() {
+    NotificationService.instance.dataTick.removeListener(_onTick);
+    super.dispose();
   }
 
   Future<void> loadOrders() async {
@@ -48,6 +60,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
       appBar: AppBar(
         title: const Text('My Orders'),
         actions: [
+          const NotificationBell(),
           IconButton(icon: const Icon(Icons.refresh_rounded), onPressed: loadOrders),
         ],
       ),

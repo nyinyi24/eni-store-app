@@ -10,7 +10,8 @@ from typing import Optional
 
 import jwt
 import telebot
-from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Header
+from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Header, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -24,6 +25,8 @@ from config import (
 )
 from database import (
     init_db,
+    ensure_app_notifications_table,
+    cancel_user_stock_reservation,
     get_db_connection,
     get_all_items,
     get_available_stock_map,
@@ -35,6 +38,7 @@ from database import (
     get_user_profile_stats,
     add_user,
     get_all_admin_ids,
+    get_user_wallet,
     claim_daily_checkin,
     redeem_points_to_wallet,
     create_wallet_topup_request,
@@ -107,6 +111,60 @@ def init_app_auth_tables():
 
 
 init_app_auth_tables()
+with get_db_connection(DATABASE_NAME) as _c:
+    ensure_app_notifications_table(_c.cursor())
+    _c.commit()
+
+
+@app.exception_handler(Exception)
+async def unhandled_error_handler(request: Request, exc: Exception):
+    print(f"Unhandled API error on {request.url.path}: {exc}")
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Server ဘက်မှာ ပြဿနာ ဖြစ်နေပါတယ်။ ခဏနေမှ ပြန်ကြိုးစားပါ၊ ဆက်ဖြစ်နေရင် Admin ကို ဆက်သွယ်ပါ။"},
+    )
+
+
+def friendly_order_error(res: dict) -> str:
+    reason = str(res.get("reason", ""))
+    if reason == "insufficient_stock":
+        stock = int(res.get("available_stock", 0))
+        if stock <= 0:
+            return "ဒီပစ္စည်း လောလောဆယ် Stock ကုန်နေပါတယ်။ တခြားသူက reserve လုပ်ထားတာလည်း ဖြစ်နိုင်လို့ ၁၀ မိနစ်ခန့်နေမှ ပြန်ကြည့်ပါ။"
+        return f"Stock မလုံလောက်ပါ။ အခု ဝယ်လို့ရတာ {stock} ခုပဲ ကျန်ပါတယ်။"
+    messages = {
+        "invalid_quantity": "အရေအတွက်ကို ၁ ခု သို့မဟုတ် အထက် ထည့်ပါ။",
+        "item_not_found": "ဒီပစ္စည်းကို ရှာမတွေ့ပါ။ ဖယ်ရှားထားနိုင်ပါတယ်၊ Shop ကို refresh လုပ်ပါ။",
+        "coupon_unavailable": "ဒီ Coupon ကို သုံးလို့မရပါ။ (code မှားနေ၊ သက်တမ်းကုန်၊ သုံးပြီးသား သို့မဟုတ် တခြားသူ့ဆီ သီးသန့်ထုတ်ထားတာ ဖြစ်နိုင်ပါတယ်)",
+        "existing_order_under_review": "ငွေပေးချေမှု စစ်ဆေးနေဆဲ order တစ်ခု ရှိနေပါတယ်။ Admin အတည်ပြုပြီးမှ order အသစ် ဝယ်ပါ။",
+        "source_order_not_found": "မူရင်း order ကို ရှာမတွေ့ပါ။",
+        "product_not_renewable": "ဒီပစ္စည်းကို renew လုပ်လို့မရပါ။",
+    }
+    return messages.get(reason, "Order မလုပ်နိုင်ပါ။ ခဏနေမှ ပြန်ကြိုးစားပါ။")
+
+
+PROOF_ERRORS = {
+    "already_submitted": "ဒီ order အတွက် Receipt ပို့ပြီးသားပါ။ Admin အတည်ပြုပေးဖို့ စောင့်ပါ။",
+    "duplicate_proof": "ဒီ Receipt ပုံကို အရင်က အသုံးပြုပြီးသား ဖြစ်နေပါတယ်။ ငွေလွှဲပြီးသား screenshot အသစ်ကို တင်ပါ။",
+    "not_found": "Order ကို ရှာမတွေ့ပါ။",
+    "expired": "ဒီ order ရဲ့ ၁၀ မိနစ် reserve သက်တမ်း ကုန်သွားပါပြီ။ Order အသစ် ပြန်လုပ်ပါ။",
+    "cancelled": "ဒီ order ကို ပယ်ဖျက်ပြီးသားပါ။ Order အသစ် ပြန်လုပ်ပါ။",
+    "released": "ဒီ order ရဲ့ reserve ကုန်သွားပါပြီ။ Order အသစ် ပြန်လုပ်ပါ။",
+}
+
+
+def friendly_proof_error(status: str) -> str:
+    return PROOF_ERRORS.get(str(status), f"Receipt မတင်နိုင်ပါ ({status})။ Order အခြေအနေကို စစ်ပါ။")
+
+
+def validate_image_upload(file: UploadFile, data: bytes):
+    if not data:
+        raise HTTPException(status_code=400, detail="ပုံဖိုင် ဗလာဖြစ်နေပါတယ်။ Screenshot ကို ပြန်ရွေးပါ။")
+    if len(data) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="ပုံဖိုင်ကြီးလွန်းပါတယ် (အများဆုံး 10MB)။")
+    ctype = (file.content_type or "").lower()
+    if ctype and not ctype.startswith("image/") and ctype != "application/octet-stream":
+        raise HTTPException(status_code=400, detail="ပုံ (JPG/PNG) ဖိုင်ကိုပဲ တင်လို့ရပါတယ်။")
 
 
 def _hash_password(password: str, salt: str = "eni_salt_2026") -> str:
@@ -397,7 +455,7 @@ def api_telegram_link_verify(req: TelegramVerifyRequest, user_id: int = Depends(
             for table in (
                 "orders", "wallet_topups", "support_tickets", "payment_submissions",
                 "stock_reservations", "stock_waitlist", "promotion_claims", "gw_claims",
-                "referral_rewards",
+                "referral_rewards", "app_notifications",
             ):
                 conn.execute(f"UPDATE OR IGNORE {table} SET user_id = ? WHERE user_id = ?", (new_id, old_id))
             conn.execute("UPDATE OR IGNORE orders SET gift_recipient_id = ? WHERE gift_recipient_id = ?", (new_id, old_id))
@@ -416,6 +474,48 @@ def api_telegram_link_verify(req: TelegramVerifyRequest, user_id: int = Depends(
         "user_id": new_id,
         "message": "Telegram ချိတ်ဆက်ပြီးပါပြီ။ Bot ထဲက balance နဲ့ order တွေ ပေါင်းထည့်ပေးပြီးပါပြီ။",
     }
+
+
+# ==================== 1c. In-app Notifications ====================
+
+class MarkReadRequest(BaseModel):
+    ids: Optional[list[int]] = None  # None / empty = mark all
+
+
+@app.get("/api/notifications")
+def api_notifications(user_id: int = Depends(get_current_user)):
+    with get_db_connection(DATABASE_NAME) as conn:
+        rows = conn.execute(
+            "SELECT id, kind, title, body, order_id, is_read, created_at FROM app_notifications "
+            "WHERE user_id = ? ORDER BY id DESC LIMIT 50",
+            (user_id,),
+        ).fetchall()
+        unread = conn.execute(
+            "SELECT COUNT(*) FROM app_notifications WHERE user_id = ? AND is_read = 0", (user_id,)
+        ).fetchone()[0]
+    return {
+        "unread": int(unread),
+        "notifications": [
+            {"id": r[0], "kind": r[1], "title": r[2], "body": r[3], "order_id": r[4],
+             "is_read": bool(r[5]), "created_at": r[6]}
+            for r in rows
+        ],
+    }
+
+
+@app.post("/api/notifications/read")
+def api_notifications_read(req: MarkReadRequest, user_id: int = Depends(get_current_user)):
+    with get_db_connection(DATABASE_NAME) as conn:
+        if req.ids:
+            marks = ",".join("?" for _ in req.ids)
+            conn.execute(
+                f"UPDATE app_notifications SET is_read = 1 WHERE user_id = ? AND id IN ({marks})",
+                (user_id, *req.ids),
+            )
+        else:
+            conn.execute("UPDATE app_notifications SET is_read = 1 WHERE user_id = ?", (user_id,))
+        conn.commit()
+    return {"ok": True}
 
 
 # ==================== 2. Store Catalog & Config ====================
@@ -540,10 +640,37 @@ def api_create_order(req: CreateOrderRequest, user_id: int = Depends(get_current
         reservation_minutes=10,
     )
     if not res.get("ok"):
-        raise HTTPException(status_code=400, detail=res.get("reason", "Could not create order"))
+        raise HTTPException(status_code=400, detail=friendly_order_error(res))
 
     order_id = int(res["order_id"])
     total_amount = float(res["total_amount"])
+
+    # Wallet payment: check the balance BEFORE keeping the reservation, so a failed attempt
+    # never leaves stock locked / an order hanging.
+    if req.payment_method.upper() == "WALLET" and total_amount > 0:
+        balance = get_user_wallet(user_id)["balance"]
+        if balance < total_amount:
+            try:
+                cancel_user_stock_reservation(order_id, user_id)
+            except Exception as e:
+                print(f"release after insufficient wallet failed: {e}")
+            shortage = total_amount - balance
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "code": "insufficient_wallet",
+                    "message": (
+                        f"Wallet လက်ကျန်ငွေ မလောက်ပါ။\n"
+                        f"လိုအပ်ငွေ: {total_amount:,.0f} Ks\n"
+                        f"လက်ကျန်: {balance:,.0f} Ks\n"
+                        f"ကျန်ငွေ {shortage:,.0f} Ks ကို Wallet မှာ Top-Up အရင်လုပ်ပါ၊ "
+                        f"ဒါမှမဟုတ် တခြား payment နည်းလမ်း ရွေးပါ။"
+                    ),
+                    "needed": total_amount,
+                    "balance": balance,
+                    "shortage": shortage,
+                },
+            )
     mmk_per_usd = get_mmk_per_usd()
     res["total_usd"] = round(total_amount / mmk_per_usd, 2) if mmk_per_usd else 0
 
@@ -552,7 +679,17 @@ def api_create_order(req: CreateOrderRequest, user_id: int = Depends(get_current
         if total_amount > 0:
             ok, new_bal = adjust_user_wallet_balance(user_id, -total_amount)
             if not ok:
-                raise HTTPException(status_code=400, detail=f"Insufficient wallet balance ({new_bal:,.0f} MMK)")
+                try:
+                    cancel_user_stock_reservation(order_id, user_id)
+                except Exception:
+                    pass
+                raise HTTPException(
+                    status_code=400,
+                    detail={
+                        "code": "insufficient_wallet",
+                        "message": f"Wallet လက်ကျန်ငွေ မလောက်ပါ (လက်ကျန် {new_bal:,.0f} Ks)။ Top-Up လုပ်ပါ။",
+                    },
+                )
         delivery_res = _auto_deliver_order(order_id)
         res["wallet_paid"] = True
         res["auto_delivered"] = delivery_res.get("delivered", False)
@@ -588,13 +725,12 @@ async def api_upload_payment_proof(
     user_id: int = Depends(get_current_user),
 ):
     image_bytes = await file.read()
-    if not image_bytes:
-        raise HTTPException(status_code=400, detail="Uploaded screenshot is empty")
+    validate_image_upload(file, image_bytes)
 
     file_hash = "APP_" + hashlib.sha256(image_bytes).hexdigest()[:32]
     status = submit_payment_proof(order_id, user_id, file_unique_id=file_hash)
     if status != "submitted":
-        raise HTTPException(status_code=400, detail=f"Cannot submit receipt: {status}")
+        raise HTTPException(status_code=400, detail=friendly_proof_error(status))
 
     order = _order_dict(order_id) or {}
     item_name = order.get("item_name") or "Product"
@@ -624,14 +760,14 @@ async def api_upload_payment_proof(
             except Exception as e:
                 print(f"Failed sending receipt to admin {admin_id}: {e}")
 
-    return {"ok": True, "message": "Receipt uploaded! Admin will approve your order shortly."}
+    return {"ok": True, "message": "Receipt ပို့ပြီးပါပြီ။ Admin အတည်ပြုပြီးရင် ပစ္စည်း Orders tab ထဲ ရောက်လာပါမယ်။"}
 
 
 @app.post("/api/orders/verify-crypto")
 def api_verify_crypto(req: CryptoVerifyRequest, user_id: int = Depends(get_current_user)):
     order = get_order_details(req.order_id)
     if not order or int(order[1]) != int(user_id):
-        raise HTTPException(status_code=404, detail="Order not found")
+        raise HTTPException(status_code=404, detail="Order ကို ရှာမတွေ့ပါ။")
 
     order_code = str(order[8] or f"ORD-{req.order_id}")
     total_mmk = float((_order_dict(req.order_id) or {}).get("total_amount") or 0)
@@ -645,12 +781,15 @@ def api_verify_crypto(req: CryptoVerifyRequest, user_id: int = Depends(get_curre
         check = verify_evm_usdt_transaction(req.tx_hash_or_note, expected_usd, network=net)
 
     if not check.get("ok"):
-        raise HTTPException(status_code=400, detail=check.get("reason", "Verification failed"))
+        raise HTTPException(
+            status_code=400,
+            detail=f"Payment ကို စစ်ဆေးလို့မရသေးပါ: {check.get('reason', 'ရှာမတွေ့ပါ')}\nTransaction Hash / Order ID မှန်မမှန်နဲ့ ငွေပမာဏ ပြည့်မပြည့် ပြန်စစ်ပါ။",
+        )
 
     tx_id = check["tx_id"]
     sub_status = submit_payment_proof(req.order_id, user_id, file_unique_id=tx_id)
     if sub_status not in ("submitted", "already_submitted"):
-        raise HTTPException(status_code=400, detail=f"Order state error: {sub_status}")
+        raise HTTPException(status_code=400, detail=friendly_proof_error(sub_status))
 
     delivery_res = _auto_deliver_order(req.order_id)
     return {
@@ -713,7 +852,7 @@ def api_user_dashboard(user_id: int = Depends(get_current_user)):
 def api_daily_checkin(user_id: int = Depends(get_current_user)):
     res = claim_daily_checkin(user_id)
     if not res.get("ok"):
-        raise HTTPException(status_code=400, detail="You have already checked in today! Come back tomorrow.")
+        raise HTTPException(status_code=400, detail="ဒီနေ့ Check-in လုပ်ပြီးသားပါ။ မနက်ဖြန်မှ ပြန်လာပါ။")
     return res
 
 
@@ -721,7 +860,7 @@ def api_daily_checkin(user_id: int = Depends(get_current_user)):
 def api_redeem_points(user_id: int = Depends(get_current_user)):
     res = redeem_points_to_wallet(user_id, points_needed=500, mmk_reward=1000)
     if not res.get("ok"):
-        raise HTTPException(status_code=400, detail=f"Need 500 points to redeem 1,000 MMK (Current: {res.get('points', 0)} pts)")
+        raise HTTPException(status_code=400, detail=f"Points မလုံလောက်ပါ။ 500 pts လိုပါတယ် (လက်ရှိ {res.get('points', 0)} pts)။")
     return res
 
 
@@ -733,15 +872,21 @@ async def api_wallet_topup(
     user_id: int = Depends(get_current_user),
 ):
     if amount < 1000:
-        raise HTTPException(status_code=400, detail="Minimum top-up amount is 1,000 MMK")
+        raise HTTPException(status_code=400, detail="Top-Up ငွေပမာဏ အနည်းဆုံး 1,000 Ks ဖြစ်ရပါမယ်။")
+    if amount > 5_000_000:
+        raise HTTPException(status_code=400, detail="တစ်ကြိမ်လျှင် Top-Up အများဆုံး 5,000,000 Ks ပဲ လက်ခံပါတယ်။")
+    if payment_method not in ("KPay", "WavePay"):
+        raise HTTPException(status_code=400, detail="Top-Up နည်းလမ်းကို KBZPay သို့မဟုတ် WavePay ရွေးပါ။")
     image_bytes = await file.read()
-    if not image_bytes:
-        raise HTTPException(status_code=400, detail="Empty receipt image")
+    validate_image_upload(file, image_bytes)
 
     file_hash = "TOPUP_" + hashlib.sha256(image_bytes).hexdigest()[:32]
     topup_id, err = create_wallet_topup_request(user_id, amount, payment_method, file_hash)
     if err or not topup_id:
-        raise HTTPException(status_code=400, detail="Duplicate receipt or invalid top-up request")
+        raise HTTPException(
+            status_code=400,
+            detail="ဒီ Receipt ပုံကို အရင်က တင်ပြီးသား ဖြစ်နေပါတယ်။ ငွေလွှဲပြီးသား screenshot အသစ်ကို တင်ပါ။",
+        )
 
     if bot:
         markup = telebot.types.InlineKeyboardMarkup(row_width=2)
@@ -762,7 +907,7 @@ async def api_wallet_topup(
             except Exception:
                 pass
 
-    return {"ok": True, "topup_id": topup_id, "message": "Top-up receipt submitted to Admin!"}
+    return {"ok": True, "topup_id": topup_id, "message": "Top-Up Receipt ကို Admin ဆီ ပို့ပြီးပါပြီ။ အတည်ပြုပြီးရင် အသိပေးပါမယ်။"}
 
 
 @app.post("/api/support/ticket")

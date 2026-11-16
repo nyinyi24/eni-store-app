@@ -2491,6 +2491,85 @@ def get_orders_by_user_for_admin(user_id, limit=30):
         """, (user_id, limit))
         return cursor.fetchall()
 
+def ensure_app_notifications_table(cursor):
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS app_notifications (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            kind TEXT NOT NULL,
+            title TEXT NOT NULL,
+            body TEXT NOT NULL DEFAULT '',
+            order_id INTEGER,
+            ref TEXT,
+            is_read INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL
+        )
+        """
+    )
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_app_notif_user ON app_notifications (user_id, id)")
+
+
+def push_app_notification(user_id, kind, title, body="", order_id=None, ref=None):
+    """Queue an in-app notification. Only app accounts get them; failures never break the caller."""
+    try:
+        with get_db_connection(DATABASE_NAME, timeout=10) as conn:
+            cur = conn.cursor()
+            has_accounts = cur.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='app_accounts'"
+            ).fetchone()
+            if not has_accounts:
+                return
+            if not cur.execute("SELECT 1 FROM app_accounts WHERE user_id = ?", (int(user_id),)).fetchone():
+                return
+            ensure_app_notifications_table(cur)
+            dup = cur.execute(
+                "SELECT 1 FROM app_notifications WHERE user_id = ? AND kind = ? "
+                "AND COALESCE(order_id, -1) = COALESCE(?, -1) AND COALESCE(ref, '') = COALESCE(?, '')",
+                (int(user_id), kind, order_id, ref),
+            ).fetchone()
+            if dup:
+                return
+            cur.execute(
+                "INSERT INTO app_notifications (user_id, kind, title, body, order_id, ref, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (int(user_id), kind, title, body, order_id, ref,
+                 yangon_now().strftime("%Y-%m-%d %H:%M:%S")),
+            )
+            conn.commit()
+    except Exception as e:
+        print(f"push_app_notification error: {e}")
+
+
+def notify_order_status_change(order_id, status):
+    kinds = {
+        "success": ("order_success", "✅ ပစ္စည်း ရောက်ပါပြီ",
+                    "{item} ({code}) ကို Orders tab မှာ ကြည့်နိုင်ပါပြီ။"),
+        "partial": ("order_partial", "📦 ပစ္စည်း တစ်စိတ်တစ်ပိုင်း ပို့ပြီးပါပြီ",
+                    "{item} ({code}) အချို့ ပို့ပြီးပါပြီ၊ ကျန်တာကို Admin က မကြာမီ ပို့ပေးပါမယ်။"),
+        "rejected": ("order_rejected", "❌ ငွေပေးချေမှု လက်မခံပါ",
+                     "{item} ({code}) ၏ payment ကို Admin က လက်မခံပါ။ ပြဿနာရှိရင် Admin ကို ဆက်သွယ်ပါ။"),
+    }
+    entry = kinds.get(str(status).strip().lower())
+    if not entry:
+        return
+    try:
+        with get_db_connection(DATABASE_NAME) as conn:
+            row = conn.execute(
+                "SELECT user_id, item_name, order_code FROM orders WHERE order_id = ?", (order_id,)
+            ).fetchone()
+        if not row:
+            return
+        kind, title, body = entry
+        push_app_notification(
+            row[0], kind, title,
+            body.format(item=str(row[1]).replace("\u200e", "").strip(), code=row[2] or f"ORD-{order_id}"),
+            order_id=order_id,
+        )
+    except Exception as e:
+        print(f"notify_order_status_change error: {e}")
+
+
 def update_order_status(order_id, status, reduce_stock=True):
     """Update an order and start its product duration when delivery succeeds."""
     with get_db_connection(DATABASE_NAME) as conn:
@@ -2547,6 +2626,8 @@ def update_order_status(order_id, status, reduce_stock=True):
         conn.commit()
         if reduce_stock and is_new_success:
             reduce_item_stock_manual(item_name, quantity)
+    if str(status or "").lower() != str(previous_status or "").lower():
+        notify_order_status_change(order_id, status)
 
 def update_order_delivery(order_id, account_info):
     with get_db_connection(DATABASE_NAME) as conn:
@@ -3447,7 +3528,19 @@ def process_wallet_topup_request(topup_id, admin_id, approve=True):
             )
             new_balance = float(cursor.execute("SELECT balance FROM user_wallets WHERE user_id = ?", (user_id,)).fetchone()[0] or 0.0)
         conn.commit()
-        return {"user_id": user_id, "amount": amount, "new_balance": new_balance, "status": new_status}, None
+    if approve:
+        push_app_notification(
+            user_id, "topup_approved", "💰 Top-up အတည်ပြုပြီးပါပြီ",
+            f"{amount:,.0f} Ks ထည့်ပေးပြီးပါပြီ။ လက်ကျန်: {new_balance:,.0f} Ks",
+            ref=f"topup:{topup_id}",
+        )
+    else:
+        push_app_notification(
+            user_id, "topup_rejected", "❌ Top-up လက်မခံပါ",
+            f"{amount:,.0f} Ks top-up ကို Admin က လက်မခံပါ။ Receipt မှန်မမှန် စစ်ပြီး ပြန်တင်ပါ။",
+            ref=f"topup:{topup_id}",
+        )
+    return {"user_id": user_id, "amount": amount, "new_balance": new_balance, "status": new_status}, None
 
 def claim_daily_checkin(user_id):
     today_dt = yangon_now().date()

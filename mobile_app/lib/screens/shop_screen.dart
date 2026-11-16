@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import '../api_service.dart';
 import '../theme.dart';
+import '../notifications.dart';
 
 class ShopScreen extends StatefulWidget {
   const ShopScreen({super.key});
@@ -205,19 +206,26 @@ class _ShopScreenState extends State<ShopScreen> {
 
   Widget _buildSearch() {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
-      child: TextField(
-        onChanged: (val) => setState(() => searchQuery = val),
-        decoration: InputDecoration(
-          hintText: 'Search VPN, Telegram, Gift Cards...',
-          prefixIcon: const Icon(Icons.search_rounded),
-          suffixIcon: IconButton(
-            icon: const Icon(Icons.refresh_rounded),
-            tooltip: 'Refresh',
-            onPressed: loadStore,
+      padding: const EdgeInsets.fromLTRB(16, 0, 8, 10),
+      child: Row(
+        children: [
+          Expanded(
+            child: TextField(
+              onChanged: (val) => setState(() => searchQuery = val),
+              decoration: InputDecoration(
+                hintText: 'Search VPN, Telegram, Gift Cards...',
+                prefixIcon: const Icon(Icons.search_rounded),
+                suffixIcon: IconButton(
+                  icon: const Icon(Icons.refresh_rounded),
+                  tooltip: 'Refresh',
+                  onPressed: loadStore,
+                ),
+                contentPadding: const EdgeInsets.symmetric(vertical: 14),
+              ),
+            ),
           ),
-          contentPadding: const EdgeInsets.symmetric(vertical: 14),
-        ),
+          const NotificationBell(),
+        ],
       ),
     );
   }
@@ -469,6 +477,8 @@ class _CheckoutBottomSheetState extends State<CheckoutBottomSheet> {
   final txHashCtrl = TextEditingController();
   bool submitting = false;
   Map<String, dynamic>? createdOrder;
+  String? errorText;
+  String? errorCode;
 
   @override
   void dispose() {
@@ -493,10 +503,80 @@ class _CheckoutBottomSheetState extends State<CheckoutBottomSheet> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg), backgroundColor: color));
   }
 
+  void _fail(String msg, {String? code}) {
+    setState(() {
+      errorText = msg;
+      errorCode = code;
+    });
+  }
+
+  Widget _errorBanner() {
+    if (errorText == null) return const SizedBox.shrink();
+    final walletShort = errorCode == 'insufficient_wallet';
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.danger.withAlpha(28),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.danger.withAlpha(140)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Icon(Icons.error_outline_rounded, color: AppColors.danger, size: 20),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(errorText!, style: const TextStyle(fontSize: 13, height: 1.45)),
+              ),
+              InkWell(
+                onTap: () => setState(() {
+                  errorText = null;
+                  errorCode = null;
+                }),
+                child: Icon(Icons.close_rounded, size: 18, color: AppColors.textDim),
+              ),
+            ],
+          ),
+          if (walletShort) ...[
+            const SizedBox(height: 10),
+            Align(
+              alignment: Alignment.centerRight,
+              child: OutlinedButton.icon(
+                onPressed: () => setState(() {
+                  paymentMethod = 'KPay';
+                  errorText = null;
+                  errorCode = null;
+                }),
+                icon: const Icon(Icons.swap_horiz_rounded, size: 18),
+                label: const Text('KBZPay နဲ့ ပြောင်းဝယ်မယ်'),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
   Future<void> placeOrder() async {
-    if (needsTargetUsername && targetUserCtrl.text.trim().isEmpty) {
-      _snack('Please enter target Telegram @username');
-      return;
+    setState(() {
+      errorText = null;
+      errorCode = null;
+    });
+    final target = targetUserCtrl.text.trim();
+    if (needsTargetUsername) {
+      if (target.isEmpty) {
+        _fail('ပို့ပေးရမယ့် Telegram @username ကို ထည့်ပါ။');
+        return;
+      }
+      if (!RegExp(r'^@?[A-Za-z0-9_]{4,32}$').hasMatch(target)) {
+        _fail('Telegram @username မမှန်ပါ။ စာလုံး/ဂဏန်း/_ ၄ လုံးမှ ၃၂ လုံးအတွင်း ဖြစ်ရပါမယ်။');
+        return;
+      }
     }
 
     setState(() => submitting = true);
@@ -505,7 +585,7 @@ class _CheckoutBottomSheetState extends State<CheckoutBottomSheet> {
       quantity: quantity,
       paymentMethod: paymentMethod,
       couponCode: couponCtrl.text.trim().isEmpty ? null : couponCtrl.text.trim(),
-      targetUsername: targetUserCtrl.text.trim().isEmpty ? null : targetUserCtrl.text.trim(),
+      targetUsername: target.isEmpty ? null : target,
     );
     if (!mounted) return;
     setState(() => submitting = false);
@@ -517,19 +597,20 @@ class _CheckoutBottomSheetState extends State<CheckoutBottomSheet> {
         widget.onOrderSuccess();
         _snack(
           orderData['auto_delivered'] == true
-              ? '✅ Paid via Wallet! Product delivered to My Orders.'
-              : '✅ Paid via Wallet! Admin is preparing your delivery.',
+              ? '✅ Wallet နဲ့ ပေးချေပြီးပါပြီ! ပစ္စည်းကို My Orders မှာ ကြည့်ပါ။'
+              : '✅ Wallet နဲ့ ပေးချေပြီးပါပြီ! Admin က ပို့ပေးနေပါပြီ၊ ရောက်ရင် အသိပေးပါမယ်။',
           color: Colors.green,
         );
       } else {
         setState(() => createdOrder = orderData);
       }
     } else {
-      _snack(res['error'] ?? 'Failed', color: Colors.redAccent);
+      _fail('${res['error'] ?? 'Order မလုပ်နိုင်ပါ။ ပြန်ကြိုးစားပါ။'}', code: res['code']?.toString());
     }
   }
 
   Future<void> pickAndUploadReceipt() async {
+    setState(() => errorText = null);
     final picker = ImagePicker();
     final picked = await picker.pickImage(source: ImageSource.gallery);
     if (picked == null) return;
@@ -542,15 +623,23 @@ class _CheckoutBottomSheetState extends State<CheckoutBottomSheet> {
     if (res['ok'] == true) {
       Navigator.pop(context);
       widget.onOrderSuccess();
-      _snack(res['message'] ?? 'Submitted!', color: Colors.green);
+      _snack('${res['message'] ?? 'Receipt ပို့ပြီးပါပြီ။'}', color: Colors.green);
     } else {
-      _snack(res['error'] ?? 'Upload error', color: Colors.redAccent);
+      _fail('${res['error'] ?? 'Receipt မတင်နိုင်ပါ။ ပြန်ကြိုးစားပါ။'}');
     }
   }
 
   Future<void> verifyCrypto() async {
-    if (txHashCtrl.text.trim().isEmpty) return;
-    setState(() => submitting = true);
+    if (txHashCtrl.text.trim().isEmpty) {
+      _fail(paymentMethod == 'BINANCE_PAY'
+          ? 'Binance Order ID သို့မဟုတ် Note ကို ထည့်ပါ။'
+          : 'Transaction Hash (0x...) ကို ထည့်ပါ။');
+      return;
+    }
+    setState(() {
+      submitting = true;
+      errorText = null;
+    });
     String net = 'bep20';
     if (paymentMethod == 'USDT_ERC20') net = 'erc20';
     if (paymentMethod == 'BINANCE_PAY') net = 'binance';
@@ -566,9 +655,9 @@ class _CheckoutBottomSheetState extends State<CheckoutBottomSheet> {
     if (res['ok'] == true) {
       Navigator.pop(context);
       widget.onOrderSuccess();
-      _snack('✅ Crypto Payment Verified! Check Orders for your account/key.', color: Colors.green);
+      _snack('✅ Payment စစ်ဆေးပြီးပါပြီ! ပစ္စည်းကို My Orders မှာ ကြည့်ပါ။', color: Colors.green);
     } else {
-      _snack(res['error'] ?? 'Verification failed', color: Colors.redAccent);
+      _fail('${res['error'] ?? 'Payment ကို စစ်ဆေးလို့မရပါ။'}');
     }
   }
 
@@ -706,6 +795,7 @@ class _CheckoutBottomSheetState extends State<CheckoutBottomSheet> {
                     ),
                   ),
                   const SizedBox(height: 18),
+                  _errorBanner(),
                   SizedBox(
                     width: double.infinity,
                     height: 50,
@@ -793,6 +883,7 @@ class _CheckoutBottomSheetState extends State<CheckoutBottomSheet> {
                     ),
                   ),
                   const SizedBox(height: 16),
+                  _errorBanner(),
                   if (paymentMethod == 'KPay' || paymentMethod == 'WavePay')
                     SizedBox(
                       width: double.infinity,
